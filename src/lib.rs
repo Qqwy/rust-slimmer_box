@@ -10,16 +10,53 @@ use trace::trace;
 trace::init_depth_var!();
 
 
-#[repr(transparent)]
 #[derive(Archive, Serialize, Deserialize)]
-pub struct Foo<T>(Box<[T]>);
-
 // #[rustc_layout(debug)]
+// #[archive_attr(rustc_layout(debug))]
+pub enum Foo {
+    First(bool),
+    Second(u32),
+    OutOfLine(SmallSliceBox<i32>),
+}
+
+/// A packed alternative to `Box<[T]>` for slices with at most 2ˆ32 (4_294_967_296) elements.
+///
+/// A normal `Box<[T]>` is an owned 'fat pointer' that contains both the 'raw' pointer to memory
+/// as well as the size (as an usize) of the managed slice.
+///
+/// On 64-bit targets (where sizeof(usize) == sizeof(u64)), this makes a `Box<[T]>` take up 16 bytes (128 bits, 2 words).
+/// That's a shame: It means that if you build an enum that contains a `Box<[T]>`,
+/// then it will at least require 24 bytes (196 bits, 3 words) of stack memory.
+///
+/// But it is rather common to work with slices that will never be that large:
+/// a `[u8; 2^32]` takes 4GiB of space. Are you really working with strings that are larger in your app?
+///
+/// And since the length is counted in elements, a `[u64; 2^32]` takes 32GiB.
+///
+/// By storing the length of such a 'fat pointer' inside a u32 rather than a u64,
+/// a SmallSliceBox only takes up 12 bytes (96 bits, 1.5 words) rather than 16 bytes.
+///
+/// This allows it to be used inside another structure, such as in one or more variants of an enum.
+/// The resulting structure will then still only take up 16 bytes.
+///
+/// In situations where you are trying to optimize for memory usage, cache locality, etc,
+/// this might make a difference.
+///
+/// # Niche optimization
+/// Just like a normal Box, `sizeof(Option<SmallSliceBox<T>>) == sizeof(SmallSliceBox<T>)`.
+///
+/// # Rkyv
+/// rkyv's Archive, Serialize and Deserialize have been implemented for SmallSliceBox.
+/// The serialized version of a SmallSliceBox<T> is 'just' a normal `rkyv::ArchivedBox<[T]>`.
+/// This is a match made in heaven, since rkyv's relative pointers use only 32 bits for the pointer part _as well as_ the length part.
+/// As such, `sizeof(rkyv::Archived<SmallSliceBox<T>>) == 8` bytes (!).
+/// (This is assuming rkyv's feature `size_32` is used which is the default.
+/// Changing it to `size_64` is rarely useful for the same reason as the rant about lengths above.)
+
 #[repr(packed)]
 pub struct SmallSliceBox<T> {
     ptr: core::ptr::NonNull<T>,
     size: u32,
-    marker: core::marker::PhantomData<T>,
 }
 
 pub struct SmallSliceBoxResolver<T>(rkyv::boxed::BoxResolver<<[T] as ArchiveUnsized>::MetadataResolver>)
@@ -143,7 +180,6 @@ impl<T> SmallSliceBox<T> {
         let res = SmallSliceBox {
             ptr,
             size,
-            marker: core::marker::PhantomData,
         };
         Ok(res)
     }
@@ -186,7 +222,7 @@ impl<T> SmallSliceBox<T> {
 
 impl<T> Drop for SmallSliceBox<T> {
     fn drop(&mut self) {
-        let me = std::mem::replace(self, SmallSliceBox { ptr: NonNull::dangling(), size: 0, marker: PhantomData});
+        let me = std::mem::replace(self, SmallSliceBox { ptr: NonNull::dangling(), size: 0});
         core::mem::forget(self);
         let _drop_this_box = SmallSliceBox::to_box(me);
     }

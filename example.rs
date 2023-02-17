@@ -6,32 +6,82 @@ use std::prelude::rust_2021::*;
 extern crate std;
 use std::{mem::ManuallyDrop, ptr::NonNull, marker::PhantomData, ops::{Deref, DerefMut}};
 use bytecheck::CheckBytes;
-use rkyv::{Archive, Deserialize, Serialize, Archived, ArchiveUnsized};
+use rkyv::{
+    Archive, Deserialize, Serialize, Archived, Resolver, ArchiveUnsized,
+    boxed::ArchivedBox, SerializeUnsized,
+};
+use trace::trace;
+const DEPTH: ::std::thread::LocalKey<::std::cell::Cell<usize>> = {
+    #[inline]
+    fn __init() -> ::std::cell::Cell<usize> {
+        ::std::cell::Cell::new(0)
+    }
+    #[inline]
+    unsafe fn __getit(
+        init: ::std::option::Option<&mut ::std::option::Option<::std::cell::Cell<usize>>>,
+    ) -> ::std::option::Option<&'static ::std::cell::Cell<usize>> {
+        #[thread_local]
+        #[cfg(
+            all(
+                target_thread_local,
+                not(all(target_family = "wasm", not(target_feature = "atomics"))),
+            )
+        )]
+        static __KEY: ::std::thread::__FastLocalKeyInner<::std::cell::Cell<usize>> = ::std::thread::__FastLocalKeyInner::new();
+        #[allow(unused_unsafe)]
+        unsafe {
+            __KEY
+                .get(move || {
+                    if let ::std::option::Option::Some(init) = init {
+                        if let ::std::option::Option::Some(value) = init.take() {
+                            return value;
+                        } else if true {
+                            ::core::panicking::panic_fmt(
+                                ::core::fmt::Arguments::new_v1(
+                                    &["internal error: entered unreachable code: "],
+                                    &[
+                                        ::core::fmt::ArgumentV1::new_display(
+                                            &::core::fmt::Arguments::new_v1(
+                                                &["missing default value"],
+                                                &[],
+                                            ),
+                                        ),
+                                    ],
+                                ),
+                            );
+                        }
+                    }
+                    __init()
+                })
+        }
+    }
+    unsafe { ::std::thread::LocalKey::new(__getit) }
+};
 #[repr(transparent)]
-pub struct Foo<T>(Box<[T]>);
+pub struct Foo<T>(SmallSliceBox<T>);
 #[automatically_derived]
 ///An archived [`Foo`]
 #[repr()]
 pub struct ArchivedFoo<T>(
     ///The archived counterpart of [`Foo::0`]
-    ::rkyv::Archived<Box<[T]>>,
+    ::rkyv::Archived<SmallSliceBox<T>>,
 )
 where
-    Box<[T]>: ::rkyv::Archive;
+    SmallSliceBox<T>: ::rkyv::Archive;
 #[automatically_derived]
 ///The resolver for an archived [`Foo`]
 pub struct FooResolver<T>(
-    ::rkyv::Resolver<Box<[T]>>,
+    ::rkyv::Resolver<SmallSliceBox<T>>,
 )
 where
-    Box<[T]>: ::rkyv::Archive;
+    SmallSliceBox<T>: ::rkyv::Archive;
 #[automatically_derived]
 const _: () = {
     use ::core::marker::PhantomData;
     use ::rkyv::{out_field, Archive, Archived};
     impl<T> Archive for Foo<T>
     where
-        Box<[T]>: ::rkyv::Archive,
+        SmallSliceBox<T>: ::rkyv::Archive,
     {
         type Archived = ArchivedFoo<T>;
         type Resolver = FooResolver<T>;
@@ -59,7 +109,7 @@ const _: () = {
     use ::rkyv::{Archive, Fallible, Serialize};
     impl<__S: Fallible + ?Sized, T> Serialize<__S> for Foo<T>
     where
-        Box<[T]>: Serialize<__S>,
+        SmallSliceBox<T>: Serialize<__S>,
     {
         #[inline]
         fn serialize(
@@ -75,30 +125,69 @@ const _: () = {
     use ::rkyv::{Archive, Archived, Deserialize, Fallible};
     impl<__D: Fallible + ?Sized, T> Deserialize<Foo<T>, __D> for Archived<Foo<T>>
     where
-        Box<[T]>: Archive,
-        Archived<Box<[T]>>: Deserialize<Box<[T]>, __D>,
+        SmallSliceBox<T>: Archive,
+        Archived<SmallSliceBox<T>>: Deserialize<SmallSliceBox<T>, __D>,
     {
         #[inline]
         fn deserialize(
             &self,
             deserializer: &mut __D,
         ) -> ::core::result::Result<Foo<T>, __D::Error> {
-            Ok(Foo(Deserialize::<Box<[T]>, __D>::deserialize(&self.0, deserializer)?))
+            Ok(
+                Foo(
+                    Deserialize::<
+                        SmallSliceBox<T>,
+                        __D,
+                    >::deserialize(&self.0, deserializer)?,
+                ),
+            )
         }
     }
 };
+/// A packed alternative to Box<[T]> for slices with at most 2ˆ32 (4_294_967_296) elements.
+///
+/// A normal Box<[T]> is an owned 'fat pointer' that contains both the pointer to memory
+/// as well as the size (as an usize) of the managed slice.
+///
+/// On 64-bit targets (where sizeof(usize) == sizeof(u64)), this makes a `Box<[T]>` take up 16 bytes.
+///
+/// But it is rather common to work with slices that will never be that large:
+/// a [u8; 2^32] takes 4GiB of space. Are you really working with strings that are larger in your app?
+///
+/// And since the length is counted in elements, a [u62; 2^32] takes 32GiB.
+///
+/// By storing the length of such a 'fat pointer' inside a u32 rather than a u64,
+/// a SmallSliceBox only takes up 12 bytes (96 bits, 1.5 words) rather than 16 bytes (128 bits, 2 words).
+///
+/// This allows it to be used inside another structure, such as in one or more variants of an enum.
+/// The resulting structure will then still only take up 16 bytes (2 words).
+///
+/// # Rkyv
+/// rkyv's Archive, Serialize and Deserialize have been implemented for SmallSliceBox.
+/// The serialized version of a SmallSliceBox<T> is 'just' a normal `rkyv::ArchivedBox<[T]>`.
+/// This is perfectly fine, since rkyv's relative pointers use only 32 bits for the pointer part.
+/// (This is assuming rkyv's feature `size_32` is used which is the default.)
+/// As such, `sizeof(rkyv::Archived<SmallSliceBox<T>>) == 12` as well.
 #[repr(packed)]
 pub struct SmallSliceBox<T> {
     ptr: core::ptr::NonNull<T>,
     size: u32,
     marker: core::marker::PhantomData<T>,
 }
+pub struct SmallSliceBoxResolver<T>(
+    rkyv::boxed::BoxResolver<<[T] as ArchiveUnsized>::MetadataResolver>,
+)
+where
+    Box<[T]>: Archive,
+    [T]: ArchiveUnsized;
+/// SmallSliceBox is archived into an ArchivedBox<[T]>, just like a normal box.
 impl<T> Archive for SmallSliceBox<T>
 where
+    Box<[T]>: Archive,
     [T]: ArchiveUnsized,
 {
-    type Archived = rkyv::boxed::ArchivedBox<<[T] as ArchiveUnsized>::Archived>;
-    type Resolver = rkyv::Resolver<Box<[T]>>;
+    type Archived = ArchivedBox<<[T] as ArchiveUnsized>::Archived>;
+    type Resolver = SmallSliceBoxResolver<T>;
     #[inline]
     unsafe fn resolve(
         &self,
@@ -106,7 +195,54 @@ where
         resolver: Self::Resolver,
         out: *mut Self::Archived,
     ) {
-        rkyv::boxed::ArchivedBox::resolve_from_ref(self.as_ref(), pos, resolver, out)
+        {
+            ::std::io::_print(
+                ::core::fmt::Arguments::new_v1(
+                    &["Resolving ", "\n"],
+                    &[::core::fmt::ArgumentV1::new_debug(&(&self as *const _))],
+                ),
+            );
+        };
+        rkyv::boxed::ArchivedBox::resolve_from_ref(self.as_ref(), pos, resolver.0, out)
+    }
+}
+impl<S: rkyv::Fallible + ?Sized, T> Serialize<S> for SmallSliceBox<T>
+where
+    Box<[T]>: Serialize<S>,
+    [T]: SerializeUnsized<S>,
+{
+    #[inline]
+    fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
+        {
+            ::std::io::_print(
+                ::core::fmt::Arguments::new_v1(
+                    &["Serializing ", "\n"],
+                    &[::core::fmt::ArgumentV1::new_debug(&(&self as *const _))],
+                ),
+            );
+        };
+        let res = ArchivedBox::serialize_from_ref(self.as_ref(), serializer)?;
+        Ok(SmallSliceBoxResolver(res))
+    }
+}
+impl<T, D> Deserialize<SmallSliceBox<T>, D>
+for ArchivedBox<<[T] as ArchiveUnsized>::Archived>
+where
+    [T]: ArchiveUnsized,
+    <[T] as ArchiveUnsized>::Archived: rkyv::DeserializeUnsized<[T], D>,
+    D: rkyv::Fallible + ?Sized,
+{
+    fn deserialize(&self, deserializer: &mut D) -> Result<SmallSliceBox<T>, D::Error> {
+        {
+            ::std::io::_print(
+                ::core::fmt::Arguments::new_v1(
+                    &["Deserializing ", "\n"],
+                    &[::core::fmt::ArgumentV1::new_debug(&(&self as *const _))],
+                ),
+            );
+        };
+        let boxed: Box<[T]> = self.deserialize(deserializer)?;
+        Ok(SmallSliceBox::from_box(boxed))
     }
 }
 impl<T> SmallSliceBox<T> {
@@ -170,6 +306,9 @@ impl<T> SmallSliceBox<T> {
     pub fn try_from_box(
         boxed: Box<[T]>,
     ) -> Result<Self, <u32 as TryFrom<usize>>::Error> {
+        {
+            ::std::io::_print(::core::fmt::Arguments::new_v1(&["Hello\n"], &[]));
+        };
         let size = boxed.len().try_into()?;
         let fat_ptr = Box::into_raw(boxed);
         let thin_ptr = fat_ptr as *mut T;
@@ -196,15 +335,22 @@ impl<T> SmallSliceBox<T> {
     pub unsafe fn from_box_unchecked(boxed: Box<[T]>) -> Self {
         Self::try_from_box(boxed).unwrap_unchecked()
     }
+}
+impl<T> SmallSliceBox<T> {
     /// Turns a SmallSliceBox into a box.
     ///
     /// This is a fast constant-time operation that needs no allocation.
     ///
     /// Not an associated function to not interfere with Deref
     pub fn to_box(this: Self) -> Box<[T]> {
+        {
+            ::std::io::_print(::core::fmt::Arguments::new_v1(&["to_box called\n"], &[]));
+        };
         let ptr = core::ptr::slice_from_raw_parts(this.ptr.as_ptr(), this.size as usize)
             as *mut _;
-        unsafe { Box::from_raw(ptr) }
+        let res = unsafe { Box::from_raw(ptr) };
+        core::mem::forget(this);
+        res
     }
 }
 impl<T> Drop for SmallSliceBox<T> {
