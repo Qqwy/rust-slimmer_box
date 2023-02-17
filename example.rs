@@ -1,278 +1,40 @@
 #![feature(prelude_import)]
+#![feature(rustc_attrs)]
 #[prelude_import]
 use std::prelude::rust_2021::*;
 #[macro_use]
 extern crate std;
+use std::{mem::ManuallyDrop, ptr::NonNull, marker::PhantomData, ops::{Deref, DerefMut}};
 use bytecheck::CheckBytes;
-use rkyv::{Archive, Deserialize, Serialize};
-#[archive_attr(derive(CheckBytes))]
-#[archive_attr(derive(Debug))]
-#[archive(compare(PartialEq, PartialOrd))]
-pub enum Thing {
-    LocalString { bytes: [u8; 14], len: u8 },
-    RemoteString { ptr: Box<str> },
-}
+use rkyv::{Archive, Deserialize, Serialize, Archived, ArchiveUnsized};
+#[repr(transparent)]
+pub struct Foo<T>(Box<[T]>);
 #[automatically_derived]
-impl ::core::fmt::Debug for Thing {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        match self {
-            Thing::LocalString { bytes: __self_0, len: __self_1 } => {
-                ::core::fmt::Formatter::debug_struct_field2_finish(
-                    f,
-                    "LocalString",
-                    "bytes",
-                    &__self_0,
-                    "len",
-                    &__self_1,
-                )
-            }
-            Thing::RemoteString { ptr: __self_0 } => {
-                ::core::fmt::Formatter::debug_struct_field1_finish(
-                    f,
-                    "RemoteString",
-                    "ptr",
-                    &__self_0,
-                )
-            }
-        }
-    }
-}
-#[automatically_derived]
-impl ::core::clone::Clone for Thing {
-    #[inline]
-    fn clone(&self) -> Thing {
-        match self {
-            Thing::LocalString { bytes: __self_0, len: __self_1 } => {
-                Thing::LocalString {
-                    bytes: ::core::clone::Clone::clone(__self_0),
-                    len: ::core::clone::Clone::clone(__self_1),
-                }
-            }
-            Thing::RemoteString { ptr: __self_0 } => {
-                Thing::RemoteString {
-                    ptr: ::core::clone::Clone::clone(__self_0),
-                }
-            }
-        }
-    }
-}
-#[automatically_derived]
-///An archived [`Thing`]
-#[repr(u8)]
-pub enum ArchivedThing
+///An archived [`Foo`]
+#[repr()]
+pub struct ArchivedFoo<T>(
+    ///The archived counterpart of [`Foo::0`]
+    ::rkyv::Archived<Box<[T]>>,
+)
 where
-    [u8; 14]: ::rkyv::Archive,
-    u8: ::rkyv::Archive,
-    Box<str>: ::rkyv::Archive,
-{
-    ///The archived counterpart of [`Thing::LocalString`]
-    #[allow(dead_code)]
-    LocalString {
-        ///The archived counterpart of [`Thing::LocalString::bytes`]
-        bytes: ::rkyv::Archived<[u8; 14]>,
-        ///The archived counterpart of [`Thing::LocalString::len`]
-        len: ::rkyv::Archived<u8>,
-    },
-    ///The archived counterpart of [`Thing::RemoteString`]
-    #[allow(dead_code)]
-    RemoteString {
-        ///The archived counterpart of [`Thing::RemoteString::ptr`]
-        ptr: ::rkyv::Archived<Box<str>>,
-    },
-}
+    Box<[T]>: ::rkyv::Archive;
 #[automatically_derived]
-impl ::core::fmt::Debug for ArchivedThing
+///The resolver for an archived [`Foo`]
+pub struct FooResolver<T>(
+    ::rkyv::Resolver<Box<[T]>>,
+)
 where
-    [u8; 14]: ::rkyv::Archive,
-    u8: ::rkyv::Archive,
-    Box<str>: ::rkyv::Archive,
-{
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        match self {
-            ArchivedThing::LocalString { bytes: __self_0, len: __self_1 } => {
-                ::core::fmt::Formatter::debug_struct_field2_finish(
-                    f,
-                    "LocalString",
-                    "bytes",
-                    &__self_0,
-                    "len",
-                    &__self_1,
-                )
-            }
-            ArchivedThing::RemoteString { ptr: __self_0 } => {
-                ::core::fmt::Formatter::debug_struct_field1_finish(
-                    f,
-                    "RemoteString",
-                    "ptr",
-                    &__self_0,
-                )
-            }
-        }
-    }
-}
-const _: () = {
-    use ::core::{convert::Infallible, marker::PhantomData};
-    use bytecheck::{
-        CheckBytes, EnumCheckError, ErrorBox, StructCheckError, TupleStructCheckError,
-    };
-    #[repr(u8)]
-    enum Tag {
-        LocalString,
-        RemoteString,
-    }
-    struct Discriminant;
-    impl Discriminant {
-        #[allow(non_upper_case_globals)]
-        const LocalString: u8 = Tag::LocalString as u8;
-        #[allow(non_upper_case_globals)]
-        const RemoteString: u8 = Tag::RemoteString as u8;
-    }
-    #[repr(C)]
-    struct VariantLocalString
-    where
-        [u8; 14]: ::rkyv::Archive,
-        u8: ::rkyv::Archive,
-        Box<str>: ::rkyv::Archive,
-    {
-        __tag: Tag,
-        bytes: ::rkyv::Archived<[u8; 14]>,
-        len: ::rkyv::Archived<u8>,
-        __phantom: PhantomData<ArchivedThing>,
-    }
-    #[repr(C)]
-    struct VariantRemoteString
-    where
-        [u8; 14]: ::rkyv::Archive,
-        u8: ::rkyv::Archive,
-        Box<str>: ::rkyv::Archive,
-    {
-        __tag: Tag,
-        ptr: ::rkyv::Archived<Box<str>>,
-        __phantom: PhantomData<ArchivedThing>,
-    }
-    impl<__C: ?Sized> CheckBytes<__C> for ArchivedThing
-    where
-        [u8; 14]: ::rkyv::Archive,
-        u8: ::rkyv::Archive,
-        Box<str>: ::rkyv::Archive,
-        ::rkyv::Archived<[u8; 14]>: CheckBytes<__C>,
-        ::rkyv::Archived<u8>: CheckBytes<__C>,
-        ::rkyv::Archived<Box<str>>: CheckBytes<__C>,
-    {
-        type Error = EnumCheckError<u8>;
-        unsafe fn check_bytes<'__bytecheck>(
-            value: *const Self,
-            context: &mut __C,
-        ) -> ::core::result::Result<&'__bytecheck Self, EnumCheckError<u8>> {
-            let tag = *value.cast::<u8>();
-            match tag {
-                Discriminant::LocalString => {
-                    let value = value.cast::<VariantLocalString>();
-                    <::rkyv::Archived<
-                        [u8; 14],
-                    > as CheckBytes<
-                        __C,
-                    >>::check_bytes(&raw const (*value).bytes, context)
-                        .map_err(|e| EnumCheckError::InvalidStruct {
-                            variant_name: "LocalString",
-                            inner: StructCheckError {
-                                field_name: "bytes",
-                                inner: ErrorBox::new(e),
-                            },
-                        })?;
-                    <::rkyv::Archived<
-                        u8,
-                    > as CheckBytes<__C>>::check_bytes(&raw const (*value).len, context)
-                        .map_err(|e| EnumCheckError::InvalidStruct {
-                            variant_name: "LocalString",
-                            inner: StructCheckError {
-                                field_name: "len",
-                                inner: ErrorBox::new(e),
-                            },
-                        })?;
-                }
-                Discriminant::RemoteString => {
-                    let value = value.cast::<VariantRemoteString>();
-                    <::rkyv::Archived<
-                        Box<str>,
-                    > as CheckBytes<__C>>::check_bytes(&raw const (*value).ptr, context)
-                        .map_err(|e| EnumCheckError::InvalidStruct {
-                            variant_name: "RemoteString",
-                            inner: StructCheckError {
-                                field_name: "ptr",
-                                inner: ErrorBox::new(e),
-                            },
-                        })?;
-                }
-                _ => return Err(EnumCheckError::InvalidTag(tag)),
-            }
-            Ok(&*value)
-        }
-    }
-};
-#[automatically_derived]
-///The resolver for an archived [`Thing`]
-pub enum ThingResolver
-where
-    [u8; 14]: ::rkyv::Archive,
-    u8: ::rkyv::Archive,
-    Box<str>: ::rkyv::Archive,
-{
-    ///The resolver for [`Thing::LocalString`]
-    #[allow(dead_code)]
-    LocalString {
-        ///The resolver for [`Thing::LocalString::bytes`]
-        bytes: ::rkyv::Resolver<[u8; 14]>,
-        ///The resolver for [`Thing::LocalString::len`]
-        len: ::rkyv::Resolver<u8>,
-    },
-    ///The resolver for [`Thing::RemoteString`]
-    #[allow(dead_code)]
-    RemoteString {
-        ///The resolver for [`Thing::RemoteString::ptr`]
-        ptr: ::rkyv::Resolver<Box<str>>,
-    },
-}
+    Box<[T]>: ::rkyv::Archive;
 #[automatically_derived]
 const _: () = {
     use ::core::marker::PhantomData;
     use ::rkyv::{out_field, Archive, Archived};
-    #[repr(u8)]
-    enum ArchivedTag {
-        LocalString,
-        RemoteString,
-    }
-    #[repr(C)]
-    struct ArchivedVariantLocalString
+    impl<T> Archive for Foo<T>
     where
-        [u8; 14]: ::rkyv::Archive,
-        u8: ::rkyv::Archive,
-        Box<str>: ::rkyv::Archive,
+        Box<[T]>: ::rkyv::Archive,
     {
-        __tag: ArchivedTag,
-        bytes: Archived<[u8; 14]>,
-        len: Archived<u8>,
-        __phantom: PhantomData<Thing>,
-    }
-    #[repr(C)]
-    struct ArchivedVariantRemoteString
-    where
-        [u8; 14]: ::rkyv::Archive,
-        u8: ::rkyv::Archive,
-        Box<str>: ::rkyv::Archive,
-    {
-        __tag: ArchivedTag,
-        ptr: Archived<Box<str>>,
-        __phantom: PhantomData<Thing>,
-    }
-    impl Archive for Thing
-    where
-        [u8; 14]: ::rkyv::Archive,
-        u8: ::rkyv::Archive,
-        Box<str>: ::rkyv::Archive,
-    {
-        type Archived = ArchivedThing;
-        type Resolver = ThingResolver;
+        type Archived = ArchivedFoo<T>;
+        type Resolver = FooResolver<T>;
         #[allow(clippy::unit_arg)]
         #[inline]
         unsafe fn resolve(
@@ -281,269 +43,231 @@ const _: () = {
             resolver: Self::Resolver,
             out: *mut Self::Archived,
         ) {
-            match resolver {
-                ThingResolver::LocalString {
-                    bytes: resolver_bytes,
-                    len: resolver_len,
-                } => {
-                    match self {
-                        Thing::LocalString { bytes: self_bytes, len: self_len } => {
-                            let out = out.cast::<ArchivedVariantLocalString>();
-                            (&raw mut (*out).__tag).write(ArchivedTag::LocalString);
-                            let (fp, fo) = {
-                                #[allow(unused_unsafe)]
-                                unsafe {
-                                    let fo = &raw mut (*out).bytes;
-                                    (fo.cast::<u8>().offset_from(out.cast::<u8>()) as usize, fo)
-                                }
-                            };
-                            ::rkyv::Archive::resolve(
-                                self_bytes,
-                                pos + fp,
-                                resolver_bytes,
-                                fo,
-                            );
-                            let (fp, fo) = {
-                                #[allow(unused_unsafe)]
-                                unsafe {
-                                    let fo = &raw mut (*out).len;
-                                    (fo.cast::<u8>().offset_from(out.cast::<u8>()) as usize, fo)
-                                }
-                            };
-                            ::rkyv::Archive::resolve(
-                                self_len,
-                                pos + fp,
-                                resolver_len,
-                                fo,
-                            );
-                        }
-                        #[allow(unreachable_patterns)]
-                        _ => ::core::hint::unreachable_unchecked(),
-                    }
+            let (fp, fo) = {
+                #[allow(unused_unsafe)]
+                unsafe {
+                    let fo = &raw mut (*out).0;
+                    (fo.cast::<u8>().offset_from(out.cast::<u8>()) as usize, fo)
                 }
-                ThingResolver::RemoteString { ptr: resolver_ptr } => {
-                    match self {
-                        Thing::RemoteString { ptr: self_ptr } => {
-                            let out = out.cast::<ArchivedVariantRemoteString>();
-                            (&raw mut (*out).__tag).write(ArchivedTag::RemoteString);
-                            let (fp, fo) = {
-                                #[allow(unused_unsafe)]
-                                unsafe {
-                                    let fo = &raw mut (*out).ptr;
-                                    (fo.cast::<u8>().offset_from(out.cast::<u8>()) as usize, fo)
-                                }
-                            };
-                            ::rkyv::Archive::resolve(
-                                self_ptr,
-                                pos + fp,
-                                resolver_ptr,
-                                fo,
-                            );
-                        }
-                        #[allow(unreachable_patterns)]
-                        _ => ::core::hint::unreachable_unchecked(),
-                    }
-                }
-            }
-        }
-    }
-    impl PartialEq<ArchivedThing> for Thing
-    where
-        [u8; 14]: ::rkyv::Archive,
-        u8: ::rkyv::Archive,
-        Box<str>: ::rkyv::Archive,
-        Archived<[u8; 14]>: PartialEq<[u8; 14]>,
-        Archived<u8>: PartialEq<u8>,
-        Archived<Box<str>>: PartialEq<Box<str>>,
-    {
-        #[inline]
-        fn eq(&self, other: &ArchivedThing) -> bool {
-            match self {
-                Thing::LocalString { bytes: self_bytes, len: self_len } => {
-                    match other {
-                        ArchivedThing::LocalString {
-                            bytes: other_bytes,
-                            len: other_len,
-                        } => true && other_bytes.eq(self_bytes) && other_len.eq(self_len),
-                        #[allow(unreachable_patterns)]
-                        _ => false,
-                    }
-                }
-                Thing::RemoteString { ptr: self_ptr } => {
-                    match other {
-                        ArchivedThing::RemoteString { ptr: other_ptr } => {
-                            true && other_ptr.eq(self_ptr)
-                        }
-                        #[allow(unreachable_patterns)]
-                        _ => false,
-                    }
-                }
-            }
-        }
-    }
-    impl PartialEq<Thing> for ArchivedThing
-    where
-        [u8; 14]: ::rkyv::Archive,
-        u8: ::rkyv::Archive,
-        Box<str>: ::rkyv::Archive,
-        Archived<[u8; 14]>: PartialEq<[u8; 14]>,
-        Archived<u8>: PartialEq<u8>,
-        Archived<Box<str>>: PartialEq<Box<str>>,
-    {
-        #[inline]
-        fn eq(&self, other: &Thing) -> bool {
-            other.eq(self)
-        }
-    }
-    impl PartialOrd<ArchivedThing> for Thing
-    where
-        [u8; 14]: ::rkyv::Archive,
-        u8: ::rkyv::Archive,
-        Box<str>: ::rkyv::Archive,
-        Archived<[u8; 14]>: PartialOrd<[u8; 14]>,
-        Archived<u8>: PartialOrd<u8>,
-        Archived<Box<str>>: PartialOrd<Box<str>>,
-    {
-        #[inline]
-        fn partial_cmp(&self, other: &ArchivedThing) -> Option<::core::cmp::Ordering> {
-            let self_disc = match self {
-                Thing::LocalString { .. } => 0usize,
-                Thing::RemoteString { .. } => 1usize,
             };
-            let other_disc = match other {
-                ArchivedThing::LocalString { .. } => 0usize,
-                ArchivedThing::RemoteString { .. } => 1usize,
-            };
-            if self_disc == other_disc {
-                match self {
-                    Thing::LocalString { bytes: self_bytes, len: self_len } => {
-                        match other {
-                            ArchivedThing::LocalString {
-                                bytes: other_bytes,
-                                len: other_len,
-                            } => {
-                                match other_bytes.partial_cmp(self_bytes) {
-                                    Some(::core::cmp::Ordering::Equal) => {}
-                                    cmp => return cmp,
-                                }
-                                match other_len.partial_cmp(self_len) {
-                                    Some(::core::cmp::Ordering::Equal) => {}
-                                    cmp => return cmp,
-                                }
-                                Some(::core::cmp::Ordering::Equal)
-                            }
-                            #[allow(unreachable_patterns)]
-                            _ => unsafe { ::core::hint::unreachable_unchecked() }
-                        }
-                    }
-                    Thing::RemoteString { ptr: self_ptr } => {
-                        match other {
-                            ArchivedThing::RemoteString { ptr: other_ptr } => {
-                                match other_ptr.partial_cmp(self_ptr) {
-                                    Some(::core::cmp::Ordering::Equal) => {}
-                                    cmp => return cmp,
-                                }
-                                Some(::core::cmp::Ordering::Equal)
-                            }
-                            #[allow(unreachable_patterns)]
-                            _ => unsafe { ::core::hint::unreachable_unchecked() }
-                        }
-                    }
-                }
-            } else {
-                self_disc.partial_cmp(&other_disc)
-            }
-        }
-    }
-    impl PartialOrd<Thing> for ArchivedThing
-    where
-        [u8; 14]: ::rkyv::Archive,
-        u8: ::rkyv::Archive,
-        Box<str>: ::rkyv::Archive,
-        Archived<[u8; 14]>: PartialOrd<[u8; 14]>,
-        Archived<u8>: PartialOrd<u8>,
-        Archived<Box<str>>: PartialOrd<Box<str>>,
-    {
-        #[inline]
-        fn partial_cmp(&self, other: &Thing) -> Option<::core::cmp::Ordering> {
-            match other.partial_cmp(self) {
-                Some(::core::cmp::Ordering::Less) => Some(::core::cmp::Ordering::Greater),
-                Some(::core::cmp::Ordering::Greater) => Some(::core::cmp::Ordering::Less),
-                cmp => cmp,
-            }
+            ::rkyv::Archive::resolve((&self.0), pos + fp, resolver.0, fo);
         }
     }
 };
 #[automatically_derived]
 const _: () = {
     use ::rkyv::{Archive, Fallible, Serialize};
-    impl<__S: Fallible + ?Sized> Serialize<__S> for Thing
+    impl<__S: Fallible + ?Sized, T> Serialize<__S> for Foo<T>
     where
-        [u8; 14]: Serialize<__S>,
-        u8: Serialize<__S>,
-        Box<str>: Serialize<__S>,
+        Box<[T]>: Serialize<__S>,
     {
         #[inline]
         fn serialize(
             &self,
             serializer: &mut __S,
         ) -> ::core::result::Result<Self::Resolver, __S::Error> {
-            Ok(
-                match self {
-                    Self::LocalString { bytes, len } => {
-                        ThingResolver::LocalString {
-                            bytes: Serialize::<__S>::serialize(bytes, serializer)?,
-                            len: Serialize::<__S>::serialize(len, serializer)?,
-                        }
-                    }
-                    Self::RemoteString { ptr } => {
-                        ThingResolver::RemoteString {
-                            ptr: Serialize::<__S>::serialize(ptr, serializer)?,
-                        }
-                    }
-                },
-            )
+            Ok(FooResolver(Serialize::<__S>::serialize(&self.0, serializer)?))
         }
     }
 };
 #[automatically_derived]
 const _: () = {
     use ::rkyv::{Archive, Archived, Deserialize, Fallible};
-    impl<__D: Fallible + ?Sized> Deserialize<Thing, __D> for Archived<Thing>
+    impl<__D: Fallible + ?Sized, T> Deserialize<Foo<T>, __D> for Archived<Foo<T>>
     where
-        [u8; 14]: Archive,
-        Archived<[u8; 14]>: Deserialize<[u8; 14], __D>,
-        u8: Archive,
-        Archived<u8>: Deserialize<u8, __D>,
-        Box<str>: Archive,
-        Archived<Box<str>>: Deserialize<Box<str>, __D>,
+        Box<[T]>: Archive,
+        Archived<Box<[T]>>: Deserialize<Box<[T]>, __D>,
     {
         #[inline]
         fn deserialize(
             &self,
             deserializer: &mut __D,
-        ) -> ::core::result::Result<Thing, __D::Error> {
-            Ok(
-                match self {
-                    Self::LocalString { bytes, len } => {
-                        Thing::LocalString {
-                            bytes: Deserialize::<
-                                [u8; 14],
-                                __D,
-                            >::deserialize(bytes, deserializer)?,
-                            len: Deserialize::<u8, __D>::deserialize(len, deserializer)?,
-                        }
-                    }
-                    Self::RemoteString { ptr } => {
-                        Thing::RemoteString {
-                            ptr: Deserialize::<
-                                Box<str>,
-                                __D,
-                            >::deserialize(ptr, deserializer)?,
-                        }
-                    }
-                },
-            )
+        ) -> ::core::result::Result<Foo<T>, __D::Error> {
+            Ok(Foo(Deserialize::<Box<[T]>, __D>::deserialize(&self.0, deserializer)?))
         }
     }
 };
+#[repr(packed)]
+pub struct SmallSliceBox<T> {
+    ptr: core::ptr::NonNull<T>,
+    size: u32,
+    marker: core::marker::PhantomData<T>,
+}
+impl<T> Archive for SmallSliceBox<T>
+where
+    [T]: ArchiveUnsized,
+{
+    type Archived = rkyv::boxed::ArchivedBox<<[T] as ArchiveUnsized>::Archived>;
+    type Resolver = rkyv::Resolver<Box<[T]>>;
+    #[inline]
+    unsafe fn resolve(
+        &self,
+        pos: usize,
+        resolver: Self::Resolver,
+        out: *mut Self::Archived,
+    ) {
+        rkyv::boxed::ArchivedBox::resolve_from_ref(self.as_ref(), pos, resolver, out)
+    }
+}
+impl<T> SmallSliceBox<T> {
+    /// Creates a new SmallSliceBox from the given slice.
+    ///
+    /// This involves cloning the slice (which will clone all elements one by one)
+    /// first into a vector, which is then turned into the SmallSliceBox.
+    ///
+    /// Panics if the slice's length cannot fit in a u32.
+    pub fn new(slice: &[T]) -> Self
+    where
+        T: Clone,
+    {
+        let boxed: Box<[T]> = slice.to_vec().into_boxed_slice();
+        Self::from_box(boxed)
+    }
+    /// Creates a new SmallSliceBox from the given slice.
+    ///
+    /// This involves cloning the slice (which will clone all elements one by one)
+    /// first into a vector, which is then turned into the SmallSliceBox.
+    ///
+    /// # Safety
+    /// The caller must ensure that `slice`'s length can fit in a u32.
+    pub unsafe fn new_unchecked(slice: &[T]) -> Self
+    where
+        T: Clone,
+    {
+        let boxed: Box<[T]> = slice.to_vec().into_boxed_slice();
+        Self::from_box_unchecked(boxed)
+    }
+    /// Variant of `new` which will return an error if the slice is too long instead of panicing.
+    pub fn try_new(slice: &[T]) -> Result<Self, <u32 as TryFrom<usize>>::Error>
+    where
+        T: Clone,
+    {
+        let boxed: Box<[T]> = slice.to_vec().into_boxed_slice();
+        Self::try_from_box(boxed)
+    }
+    /// Optimization of `new` for types implementing `Copy`
+    ///
+    /// Does not need to work with an intermediate vec,
+    /// and creating a copy from the slice is much faster.
+    ///
+    /// Panics if the slice's length cannot fit in a u32.
+    pub fn new_from_copy(slice: &[T]) -> Self
+    where
+        T: Copy,
+    {
+        let boxed: Box<[T]> = slice.into();
+        Self::from_box(boxed)
+    }
+    /// Variant of `new_from_copy` which will return an error if the slice is too long instead of panicing.
+    pub fn try_new_from_copy(slice: &[T]) -> Result<Self, <u32 as TryFrom<usize>>::Error>
+    where
+        T: Copy,
+    {
+        let boxed: Box<[T]> = slice.into();
+        Self::try_from_box(boxed)
+    }
+    /// Variant of `from_box` which will return an error if the slice is too long instead of panicing.
+    pub fn try_from_box(
+        boxed: Box<[T]>,
+    ) -> Result<Self, <u32 as TryFrom<usize>>::Error> {
+        let size = boxed.len().try_into()?;
+        let fat_ptr = Box::into_raw(boxed);
+        let thin_ptr = fat_ptr as *mut T;
+        let ptr = unsafe { core::ptr::NonNull::new_unchecked(thin_ptr) };
+        let res = SmallSliceBox {
+            ptr,
+            size,
+            marker: core::marker::PhantomData,
+        };
+        Ok(res)
+    }
+    /// Turns a Box into a SmallSliceBox.
+    ///
+    /// This is a fast constant-time operation that needs no allocation.
+    ///
+    /// Panics if the slice's length cannot fit in a u32.
+    pub fn from_box(boxed: Box<[T]>) -> Self {
+        Self::try_from_box(boxed).unwrap()
+    }
+    /// Variant of `from_box` that will not check whether the slice is short enough.
+    ///
+    /// # Safety
+    /// - The caller needs to ensure that the slice never has more elements than can fit in a u32.
+    pub unsafe fn from_box_unchecked(boxed: Box<[T]>) -> Self {
+        Self::try_from_box(boxed).unwrap_unchecked()
+    }
+    /// Turns a SmallSliceBox into a box.
+    ///
+    /// This is a fast constant-time operation that needs no allocation.
+    ///
+    /// Not an associated function to not interfere with Deref
+    pub fn to_box(this: Self) -> Box<[T]> {
+        let ptr = core::ptr::slice_from_raw_parts(this.ptr.as_ptr(), this.size as usize)
+            as *mut _;
+        unsafe { Box::from_raw(ptr) }
+    }
+}
+impl<T> Drop for SmallSliceBox<T> {
+    fn drop(&mut self) {
+        let me = std::mem::replace(
+            self,
+            SmallSliceBox {
+                ptr: NonNull::dangling(),
+                size: 0,
+                marker: PhantomData,
+            },
+        );
+        core::mem::forget(self);
+        let _drop_this_box = SmallSliceBox::to_box(me);
+    }
+}
+impl<T> Deref for SmallSliceBox<T> {
+    type Target = [T];
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), self.size as usize) }
+    }
+}
+impl<T> DerefMut for SmallSliceBox<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { core::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.size as usize) }
+    }
+}
+impl<T> core::borrow::Borrow<[T]> for SmallSliceBox<T> {
+    fn borrow(&self) -> &[T] {
+        &**self
+    }
+}
+impl<T> core::borrow::BorrowMut<[T]> for SmallSliceBox<T> {
+    fn borrow_mut(&mut self) -> &mut [T] {
+        &mut **self
+    }
+}
+impl<T> AsRef<[T]> for SmallSliceBox<T> {
+    fn as_ref(&self) -> &[T] {
+        &**self
+    }
+}
+impl<T> AsMut<[T]> for SmallSliceBox<T> {
+    fn as_mut(&mut self) -> &mut [T] {
+        &mut **self
+    }
+}
+impl<T> Unpin for SmallSliceBox<T> {}
+impl<T> Clone for SmallSliceBox<T>
+where
+    T: Clone,
+{
+    fn clone(&self) -> Self {
+        let slice = self.deref();
+        unsafe { SmallSliceBox::new_unchecked(slice) }
+    }
+}
+impl<T: core::fmt::Debug> core::fmt::Debug for SmallSliceBox<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(&**self, f)
+    }
+}
+pub enum Thing {
+    LocalString { bytes: [u8; 14], len: u8 },
+    RemoteString { ptr: SmallSliceBox<u8> },
+}
