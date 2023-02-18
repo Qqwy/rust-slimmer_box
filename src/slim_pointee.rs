@@ -36,7 +36,7 @@ where
 /// Trivial implementation for signed types, as they do not have any metadata.
 unsafe impl<T: Sized> SlimmerPointee<()> for T {}
 
-/// Implementation that will behave identical to Box<[T]> on any architecture
+/// Implementation that will behave identical to `Box<[T]>` on any architecture
 unsafe impl<T> SlimmerPointee<usize> for [T] {}
 
 /// Store at most 255 elements
@@ -51,7 +51,7 @@ unsafe impl<T> SlimmerPointee<u32> for [T] {}
 /// Store at most 18446744073709551615 elements
 unsafe impl<T> SlimmerPointee<u64> for [T] {}
 
-/// Implementation that will behave identical to Box<[T]> on any architecture
+/// Implementation that will behave identical to `Box<[T]>` on any architecture
 unsafe impl SlimmerPointee<usize> for str {}
 
 /// Store at most 15 bytes
