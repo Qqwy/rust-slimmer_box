@@ -8,14 +8,17 @@ extern crate std;
 extern crate alloc;
 use alloc::boxed::Box;
 
-use core::{ptr::NonNull, marker::PhantomData, ops::{Deref, DerefMut}};
+use core::{
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
+    ptr::NonNull,
+};
 use ptr_meta::Pointee;
 
-
-pub mod slim_pointee;
 pub mod clone_unsized;
-pub use crate::slim_pointee::SlimmerPointee;
+pub mod slim_pointee;
 pub use crate::clone_unsized::CloneUnsized;
+pub use crate::slim_pointee::SlimmerPointee;
 
 // TODO conditionally expose
 #[cfg(feature = "rkyv")]
@@ -100,7 +103,7 @@ pub struct SlimmerBox<T, SlimmerMetadata = u32>
 where
     T: ?Sized,
     T: SlimmerPointee<SlimmerMetadata>,
-    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
 {
     ptr: core::ptr::NonNull<()>,
     meta: SlimmerMetadata,
@@ -111,7 +114,7 @@ pub struct PointerMetadataDoesNotFitError<T, SlimmerMetadata>
 where
     T: ?Sized,
     T: SlimmerPointee<SlimmerMetadata>,
-    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata>
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata>,
 {
     meta: <T as Pointee>::Metadata,
     marker: PhantomData<SlimmerMetadata>,
@@ -132,22 +135,23 @@ where
 }
 
 impl<T, SlimmerMetadata> core::fmt::Display for PointerMetadataDoesNotFitError<T, SlimmerMetadata>
-    where
+where
     T: ?Sized,
     T: SlimmerPointee<SlimmerMetadata>,
     SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata>,
     // <T as Pointee>::Metadata: core::fmt::Debug,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
-        write!(f, "Pointer Metadata {} ({} bytes) could not be converted to {} ({} bytes)",
-               core::any::type_name::<<T as Pointee>::Metadata>(),
-               core::mem::size_of::<<T as Pointee>::Metadata>(),
-               core::any::type_name::<SlimmerMetadata>(),
-               core::mem::size_of::<SlimmerMetadata>()
+        write!(
+            f,
+            "Pointer Metadata {} ({} bytes) could not be converted to {} ({} bytes)",
+            core::any::type_name::<<T as Pointee>::Metadata>(),
+            core::mem::size_of::<<T as Pointee>::Metadata>(),
+            core::any::type_name::<SlimmerMetadata>(),
+            core::mem::size_of::<SlimmerMetadata>()
         )
     }
 }
-
 
 impl<T, SlimmerMetadata> SlimmerBox<T, SlimmerMetadata>
 where
@@ -198,7 +202,9 @@ where
     }
 
     /// Variant of `from_box` which will return an error if the value's metadata is too large instead of panicing.
-    pub fn try_from_box(boxed: Box<T>) -> Result<Self, PointerMetadataDoesNotFitError<T, SlimmerMetadata>> {
+    pub fn try_from_box(
+        boxed: Box<T>,
+    ) -> Result<Self, PointerMetadataDoesNotFitError<T, SlimmerMetadata>> {
         let fat_ptr = Box::into_raw(boxed);
         // SAFETY: Box ensures fat_ptr is non-null
         unsafe { Self::try_from_raw(fat_ptr) }
@@ -220,9 +226,16 @@ where
     ///
 
     /// Variant of `from_box` which will return an error if the value's metadata is too large instead of panicing.
-    pub unsafe fn try_from_raw(target_ptr: *mut T) -> Result<Self, PointerMetadataDoesNotFitError<T, SlimmerMetadata>> {
+    pub unsafe fn try_from_raw(
+        target_ptr: *mut T,
+    ) -> Result<Self, PointerMetadataDoesNotFitError<T, SlimmerMetadata>> {
         let (thin_ptr, meta) = ptr_meta::PtrExt::to_raw_parts(target_ptr);
-        let slim_meta = meta.try_into().map_err(|_| PointerMetadataDoesNotFitError{meta, marker: PhantomData})?;
+        let slim_meta = meta
+            .try_into()
+            .map_err(|_| PointerMetadataDoesNotFitError {
+                meta,
+                marker: PhantomData,
+            })?;
 
         // SAFETY: Box ensures its ptr is never null.
         let ptr = unsafe { core::ptr::NonNull::new_unchecked(thin_ptr as *mut ()) };
@@ -270,8 +283,8 @@ where
     ///
     /// Not an associated function to not interfere with Deref, so use fully qualified syntax to call it.
     pub fn to_ptr(this: &Self) -> *const T {
-        let ptr = ptr_meta::from_raw_parts(this.ptr.as_ptr(), SlimmerBox::metadata(this));
-        ptr
+        
+        ptr_meta::from_raw_parts(this.ptr.as_ptr(), SlimmerBox::metadata(this))
     }
 
     /// Turns the SlimmerBox into a raw pointer
@@ -310,10 +323,17 @@ impl<T, SlimmerMetadata> Drop for SlimmerBox<T, SlimmerMetadata>
 where
     T: ?Sized,
     T: SlimmerPointee<SlimmerMetadata>,
-    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
 {
     fn drop(&mut self) {
-        let me = core::mem::replace(self, SlimmerBox { ptr: NonNull::dangling(), meta: self.meta, marker: PhantomData});
+        let me = core::mem::replace(
+            self,
+            SlimmerBox {
+                ptr: NonNull::dangling(),
+                meta: self.meta,
+                marker: PhantomData,
+            },
+        );
         core::mem::forget(self);
         let _drop_this_box = SlimmerBox::into_box(me);
     }
@@ -342,7 +362,7 @@ where
     fn deref_mut(&mut self) -> &mut Self::Target {
         let ptr = ptr_meta::from_raw_parts_mut(self.ptr.as_ptr(), SlimmerBox::metadata(self));
         // SAFETY: Correct by construction
-        unsafe { &mut  *ptr }
+        unsafe { &mut *ptr }
     }
 }
 
@@ -353,7 +373,7 @@ where
     SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
 {
     fn borrow(&self) -> &T {
-        &**self
+        self
     }
 }
 
@@ -364,7 +384,7 @@ where
     SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
 {
     fn borrow_mut(&mut self) -> &mut T {
-        &mut **self
+        self
     }
 }
 
@@ -375,10 +395,9 @@ where
     SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
 {
     fn as_ref(&self) -> &T {
-        &**self
+        self
     }
 }
-
 
 impl<T, SlimmerMetadata> AsMut<T> for SlimmerBox<T, SlimmerMetadata>
 where
@@ -387,7 +406,7 @@ where
     SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
 {
     fn as_mut(&mut self) -> &mut T {
-        &mut **self
+        self
     }
 }
 
@@ -396,7 +415,8 @@ where
     T: ?Sized,
     T: SlimmerPointee<SlimmerMetadata>,
     SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
-{}
+{
+}
 
 impl<T, SlimmerMetadata> Clone for SlimmerBox<T, SlimmerMetadata>
 where
@@ -430,9 +450,9 @@ where
 // #[archive(compare(PartialEq, PartialOrd))]
 // #[archive_attr(rustc_layout(debug))]
 // #[rustc_layout(debug)]
-pub enum Thing{
-    LocalString{bytes: [u8; 14], len: u8},
-    RemoteString{ptr: SlimmerBox<str>},
+pub enum Thing {
+    LocalString { bytes: [u8; 14], len: u8 },
+    RemoteString { ptr: SlimmerBox<str> },
 }
 
 // #[rustc_layout(debug)]
@@ -441,31 +461,33 @@ pub enum Thing{
 //     ptr: Box<str>,
 // }
 
-
 #[cfg(test)]
 mod tests {
     use crate::SlimmerBox;
 
     #[test]
     fn roundtrip() {
-        let slice: [u64; 4] = [1,2,3,4];
+        let slice: [u64; 4] = [1, 2, 3, 4];
         let boxed: SlimmerBox<_, _> = SlimmerBox::new(&slice);
         println!("slimmerbox (array): {}", core::mem::size_of_val(&boxed));
-        println!("slimmerbox (array): {:?}", boxed);
+        println!("slimmerbox (array): {boxed:?}");
         assert_eq!(core::mem::size_of_val(&boxed), 8);
         let result = SlimmerBox::into_box(boxed);
         println!("       box (array): {}", core::mem::size_of_val(&result));
-        println!("       box (array): {:?}", result);
+        println!("       box (array): {result:?}");
         assert_eq!(core::mem::size_of_val(&result), 8);
 
         let boxed_slice: SlimmerBox<[u64]> = SlimmerBox::new(&slice);
-        println!("slimmerbox (slice): {}", core::mem::size_of_val(&boxed_slice));
-        println!("slimmerbox (slice): {:?}", boxed_slice);
+        println!(
+            "slimmerbox (slice): {}",
+            core::mem::size_of_val(&boxed_slice)
+        );
+        println!("slimmerbox (slice): {boxed_slice:?}");
         assert_eq!(core::mem::size_of_val(&boxed_slice), 12);
 
         let result = SlimmerBox::into_box(boxed_slice);
         println!("       box (slice): {}", core::mem::size_of_val(&result));
-        println!("       box (slice): {:?}", result);
+        println!("       box (slice): {result:?}");
         assert_eq!(core::mem::size_of_val(&result), 16);
     }
 }

@@ -7,7 +7,6 @@
 ///
 /// This trait could easily be implemented for any other dynamically-sized type as well.
 pub trait CloneUnsized {
-
     /// Mutates `self` to become a clone of `source`.
     ///
     /// Signature purposefully matches `Clone::clone_from`
@@ -17,15 +16,14 @@ pub trait CloneUnsized {
 
 impl<T> CloneUnsized for [T]
 where
-T: Clone
+    T: Clone,
 {
     fn unsized_clone_from(&mut self, source: &Self) {
         self.clone_from_slice(source)
     }
 }
 
-impl CloneUnsized for str
-{
+impl CloneUnsized for str {
     fn unsized_clone_from(&mut self, source: &Self) {
         // SAFETY: Cloning valid UTF8 bytes will result in valid UTF8 bytes
         unsafe { self.as_bytes_mut() }.clone_from_slice(source.as_bytes())

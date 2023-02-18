@@ -27,9 +27,9 @@ use ptr_meta::Pointee;
 /// you ever throw at it.
 /// But since we cannot trust arbitrary safe code to do 'the right thing', this trait needs to be unsafe.
 pub unsafe trait SlimmerPointee<SlimmerMetadata>: Pointee
-    where
+where
     <Self as Pointee>::Metadata: Clone,
-    SlimmerMetadata: TryFrom<<Self as Pointee>::Metadata> + TryInto<<Self as Pointee>::Metadata>
+    SlimmerMetadata: TryFrom<<Self as Pointee>::Metadata> + TryInto<<Self as Pointee>::Metadata>,
 {
 }
 
@@ -65,5 +65,3 @@ unsafe impl SlimmerPointee<u32> for str {}
 
 /// Store at most 18446744073709551615 bytes == 16 EiB
 unsafe impl SlimmerPointee<u64> for str {}
-
-
