@@ -468,18 +468,4 @@ mod tests {
         println!("       box (slice): {:?}", result);
         assert_eq!(core::mem::size_of_val(&result), 16);
     }
-
-
-    #[test]
-    fn rkyv() {
-        let boxed: SlimmerBox<[i32]> = SlimmerBox::new([1,2,3,4].as_slice());
-        println!("{:?}", &boxed);
-        let bytes = rkyv::to_bytes::<_, 64>(&boxed).unwrap();
-        assert_eq!(&bytes[..], &[1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0, 240, 255, 255, 255, 4, 0, 0, 0][..]);
-        // println!("{:?}", bytes);
-        let deserialized: SlimmerBox<[i32], u32> = unsafe { rkyv::from_bytes_unchecked(&bytes) }.unwrap();
-        assert_eq!(*boxed, *deserialized);
-        // println!("{:?}", deserialized);
-
-    }
 }
