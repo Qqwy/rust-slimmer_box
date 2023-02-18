@@ -57,34 +57,114 @@ const DEPTH: ::std::thread::LocalKey<::std::cell::Cell<usize>> = {
     }
     unsafe { ::std::thread::LocalKey::new(__getit) }
 };
-#[repr(transparent)]
-pub struct Foo<T>(SmallSliceBox<T>);
+pub enum Foo {
+    First(bool),
+    Second(u32),
+    OutOfLine(SmallSliceBox<i32>),
+}
 #[automatically_derived]
 ///An archived [`Foo`]
-#[repr()]
-pub struct ArchivedFoo<T>(
-    ///The archived counterpart of [`Foo::0`]
-    ::rkyv::Archived<SmallSliceBox<T>>,
-)
+#[repr(u8)]
+pub enum ArchivedFoo
 where
-    SmallSliceBox<T>: ::rkyv::Archive;
+    bool: ::rkyv::Archive,
+    u32: ::rkyv::Archive,
+    SmallSliceBox<i32>: ::rkyv::Archive,
+{
+    ///The archived counterpart of [`Foo::First`]
+    #[allow(dead_code)]
+    First(
+        ///The archived counterpart of [`Foo::First::0`]
+        ::rkyv::Archived<bool>,
+    ),
+    ///The archived counterpart of [`Foo::Second`]
+    #[allow(dead_code)]
+    Second(
+        ///The archived counterpart of [`Foo::Second::0`]
+        ::rkyv::Archived<u32>,
+    ),
+    ///The archived counterpart of [`Foo::OutOfLine`]
+    #[allow(dead_code)]
+    OutOfLine(
+        ///The archived counterpart of [`Foo::OutOfLine::0`]
+        ::rkyv::Archived<SmallSliceBox<i32>>,
+    ),
+}
 #[automatically_derived]
 ///The resolver for an archived [`Foo`]
-pub struct FooResolver<T>(
-    ::rkyv::Resolver<SmallSliceBox<T>>,
-)
+pub enum FooResolver
 where
-    SmallSliceBox<T>: ::rkyv::Archive;
+    bool: ::rkyv::Archive,
+    u32: ::rkyv::Archive,
+    SmallSliceBox<i32>: ::rkyv::Archive,
+{
+    ///The resolver for [`Foo::First`]
+    #[allow(dead_code)]
+    First(
+        ///The resolver for [`Foo::First::0`]
+        ::rkyv::Resolver<bool>,
+    ),
+    ///The resolver for [`Foo::Second`]
+    #[allow(dead_code)]
+    Second(
+        ///The resolver for [`Foo::Second::0`]
+        ::rkyv::Resolver<u32>,
+    ),
+    ///The resolver for [`Foo::OutOfLine`]
+    #[allow(dead_code)]
+    OutOfLine(
+        ///The resolver for [`Foo::OutOfLine::0`]
+        ::rkyv::Resolver<SmallSliceBox<i32>>,
+    ),
+}
 #[automatically_derived]
 const _: () = {
     use ::core::marker::PhantomData;
     use ::rkyv::{out_field, Archive, Archived};
-    impl<T> Archive for Foo<T>
+    #[repr(u8)]
+    enum ArchivedTag {
+        First,
+        Second,
+        OutOfLine,
+    }
+    #[repr(C)]
+    struct ArchivedVariantFirst(
+        ArchivedTag,
+        Archived<bool>,
+        PhantomData<Foo>,
+    )
     where
-        SmallSliceBox<T>: ::rkyv::Archive,
+        bool: ::rkyv::Archive,
+        u32: ::rkyv::Archive,
+        SmallSliceBox<i32>: ::rkyv::Archive;
+    #[repr(C)]
+    struct ArchivedVariantSecond(
+        ArchivedTag,
+        Archived<u32>,
+        PhantomData<Foo>,
+    )
+    where
+        bool: ::rkyv::Archive,
+        u32: ::rkyv::Archive,
+        SmallSliceBox<i32>: ::rkyv::Archive;
+    #[repr(C)]
+    struct ArchivedVariantOutOfLine(
+        ArchivedTag,
+        Archived<SmallSliceBox<i32>>,
+        PhantomData<Foo>,
+    )
+    where
+        bool: ::rkyv::Archive,
+        u32: ::rkyv::Archive,
+        SmallSliceBox<i32>: ::rkyv::Archive;
+    impl Archive for Foo
+    where
+        bool: ::rkyv::Archive,
+        u32: ::rkyv::Archive,
+        SmallSliceBox<i32>: ::rkyv::Archive,
     {
-        type Archived = ArchivedFoo<T>;
-        type Resolver = FooResolver<T>;
+        type Archived = ArchivedFoo;
+        type Resolver = FooResolver;
         #[allow(clippy::unit_arg)]
         #[inline]
         unsafe fn resolve(
@@ -93,86 +173,176 @@ const _: () = {
             resolver: Self::Resolver,
             out: *mut Self::Archived,
         ) {
-            let (fp, fo) = {
-                #[allow(unused_unsafe)]
-                unsafe {
-                    let fo = &raw mut (*out).0;
-                    (fo.cast::<u8>().offset_from(out.cast::<u8>()) as usize, fo)
+            match resolver {
+                FooResolver::First(resolver_0) => {
+                    match self {
+                        Foo::First(self_0) => {
+                            let out = out.cast::<ArchivedVariantFirst>();
+                            (&raw mut (*out).0).write(ArchivedTag::First);
+                            let (fp, fo) = {
+                                #[allow(unused_unsafe)]
+                                unsafe {
+                                    let fo = &raw mut (*out).1;
+                                    (fo.cast::<u8>().offset_from(out.cast::<u8>()) as usize, fo)
+                                }
+                            };
+                            ::rkyv::Archive::resolve(self_0, pos + fp, resolver_0, fo);
+                        }
+                        #[allow(unreachable_patterns)]
+                        _ => ::core::hint::unreachable_unchecked(),
+                    }
                 }
-            };
-            ::rkyv::Archive::resolve((&self.0), pos + fp, resolver.0, fo);
+                FooResolver::Second(resolver_0) => {
+                    match self {
+                        Foo::Second(self_0) => {
+                            let out = out.cast::<ArchivedVariantSecond>();
+                            (&raw mut (*out).0).write(ArchivedTag::Second);
+                            let (fp, fo) = {
+                                #[allow(unused_unsafe)]
+                                unsafe {
+                                    let fo = &raw mut (*out).1;
+                                    (fo.cast::<u8>().offset_from(out.cast::<u8>()) as usize, fo)
+                                }
+                            };
+                            ::rkyv::Archive::resolve(self_0, pos + fp, resolver_0, fo);
+                        }
+                        #[allow(unreachable_patterns)]
+                        _ => ::core::hint::unreachable_unchecked(),
+                    }
+                }
+                FooResolver::OutOfLine(resolver_0) => {
+                    match self {
+                        Foo::OutOfLine(self_0) => {
+                            let out = out.cast::<ArchivedVariantOutOfLine>();
+                            (&raw mut (*out).0).write(ArchivedTag::OutOfLine);
+                            let (fp, fo) = {
+                                #[allow(unused_unsafe)]
+                                unsafe {
+                                    let fo = &raw mut (*out).1;
+                                    (fo.cast::<u8>().offset_from(out.cast::<u8>()) as usize, fo)
+                                }
+                            };
+                            ::rkyv::Archive::resolve(self_0, pos + fp, resolver_0, fo);
+                        }
+                        #[allow(unreachable_patterns)]
+                        _ => ::core::hint::unreachable_unchecked(),
+                    }
+                }
+            }
         }
     }
 };
 #[automatically_derived]
 const _: () = {
     use ::rkyv::{Archive, Fallible, Serialize};
-    impl<__S: Fallible + ?Sized, T> Serialize<__S> for Foo<T>
+    impl<__S: Fallible + ?Sized> Serialize<__S> for Foo
     where
-        SmallSliceBox<T>: Serialize<__S>,
+        bool: Serialize<__S>,
+        u32: Serialize<__S>,
+        SmallSliceBox<i32>: Serialize<__S>,
     {
         #[inline]
         fn serialize(
             &self,
             serializer: &mut __S,
         ) -> ::core::result::Result<Self::Resolver, __S::Error> {
-            Ok(FooResolver(Serialize::<__S>::serialize(&self.0, serializer)?))
+            Ok(
+                match self {
+                    Self::First(_0) => {
+                        FooResolver::First(Serialize::<__S>::serialize(_0, serializer)?)
+                    }
+                    Self::Second(_0) => {
+                        FooResolver::Second(Serialize::<__S>::serialize(_0, serializer)?)
+                    }
+                    Self::OutOfLine(_0) => {
+                        FooResolver::OutOfLine(
+                            Serialize::<__S>::serialize(_0, serializer)?,
+                        )
+                    }
+                },
+            )
         }
     }
 };
 #[automatically_derived]
 const _: () = {
     use ::rkyv::{Archive, Archived, Deserialize, Fallible};
-    impl<__D: Fallible + ?Sized, T> Deserialize<Foo<T>, __D> for Archived<Foo<T>>
+    impl<__D: Fallible + ?Sized> Deserialize<Foo, __D> for Archived<Foo>
     where
-        SmallSliceBox<T>: Archive,
-        Archived<SmallSliceBox<T>>: Deserialize<SmallSliceBox<T>, __D>,
+        bool: Archive,
+        Archived<bool>: Deserialize<bool, __D>,
+        u32: Archive,
+        Archived<u32>: Deserialize<u32, __D>,
+        SmallSliceBox<i32>: Archive,
+        Archived<SmallSliceBox<i32>>: Deserialize<SmallSliceBox<i32>, __D>,
     {
         #[inline]
         fn deserialize(
             &self,
             deserializer: &mut __D,
-        ) -> ::core::result::Result<Foo<T>, __D::Error> {
+        ) -> ::core::result::Result<Foo, __D::Error> {
             Ok(
-                Foo(
-                    Deserialize::<
-                        SmallSliceBox<T>,
-                        __D,
-                    >::deserialize(&self.0, deserializer)?,
-                ),
+                match self {
+                    Self::First(_0) => {
+                        Foo::First(
+                            Deserialize::<bool, __D>::deserialize(_0, deserializer)?,
+                        )
+                    }
+                    Self::Second(_0) => {
+                        Foo::Second(
+                            Deserialize::<u32, __D>::deserialize(_0, deserializer)?,
+                        )
+                    }
+                    Self::OutOfLine(_0) => {
+                        Foo::OutOfLine(
+                            Deserialize::<
+                                SmallSliceBox<i32>,
+                                __D,
+                            >::deserialize(_0, deserializer)?,
+                        )
+                    }
+                },
             )
         }
     }
 };
-/// A packed alternative to Box<[T]> for slices with at most 2ˆ32 (4_294_967_296) elements.
+/// A packed alternative to `Box<[T]>` for slices with at most 2ˆ32 (4_294_967_296) elements.
 ///
-/// A normal Box<[T]> is an owned 'fat pointer' that contains both the pointer to memory
+/// A normal `Box<[T]>` is an owned 'fat pointer' that contains both the 'raw' pointer to memory
 /// as well as the size (as an usize) of the managed slice.
 ///
-/// On 64-bit targets (where sizeof(usize) == sizeof(u64)), this makes a `Box<[T]>` take up 16 bytes.
+/// On 64-bit targets (where sizeof(usize) == sizeof(u64)), this makes a `Box<[T]>` take up 16 bytes (128 bits, 2 words).
+/// That's a shame: It means that if you build an enum that contains a `Box<[T]>`,
+/// then it will at least require 24 bytes (196 bits, 3 words) of stack memory.
 ///
 /// But it is rather common to work with slices that will never be that large:
-/// a [u8; 2^32] takes 4GiB of space. Are you really working with strings that are larger in your app?
+/// a `[u8; 2^32]` takes 4GiB of space. Are you really working with strings that are larger in your app?
 ///
-/// And since the length is counted in elements, a [u62; 2^32] takes 32GiB.
+/// And since the length is counted in elements, a `[u64; 2^32]` takes 32GiB.
 ///
 /// By storing the length of such a 'fat pointer' inside a u32 rather than a u64,
-/// a SmallSliceBox only takes up 12 bytes (96 bits, 1.5 words) rather than 16 bytes (128 bits, 2 words).
+/// a SmallSliceBox only takes up 12 bytes (96 bits, 1.5 words) rather than 16 bytes.
 ///
 /// This allows it to be used inside another structure, such as in one or more variants of an enum.
-/// The resulting structure will then still only take up 16 bytes (2 words).
+/// The resulting structure will then still only take up 16 bytes.
+///
+/// In situations where you are trying to optimize for memory usage, cache locality, etc,
+/// this might make a difference.
+///
+/// # Niche optimization
+/// Just like a normal Box, `sizeof(Option<SmallSliceBox<T>>) == sizeof(SmallSliceBox<T>)`.
 ///
 /// # Rkyv
 /// rkyv's Archive, Serialize and Deserialize have been implemented for SmallSliceBox.
 /// The serialized version of a SmallSliceBox<T> is 'just' a normal `rkyv::ArchivedBox<[T]>`.
-/// This is perfectly fine, since rkyv's relative pointers use only 32 bits for the pointer part.
-/// (This is assuming rkyv's feature `size_32` is used which is the default.)
-/// As such, `sizeof(rkyv::Archived<SmallSliceBox<T>>) == 12` as well.
+/// This is a match made in heaven, since rkyv's relative pointers use only 32 bits for the pointer part _as well as_ the length part.
+/// As such, `sizeof(rkyv::Archived<SmallSliceBox<T>>) == 8` bytes (!).
+/// (This is assuming rkyv's feature `size_32` is used which is the default.
+/// Changing it to `size_64` is rarely useful for the same reason as the rant about lengths above.)
 #[repr(packed)]
 pub struct SmallSliceBox<T> {
     ptr: core::ptr::NonNull<T>,
     size: u32,
-    marker: core::marker::PhantomData<T>,
 }
 pub struct SmallSliceBoxResolver<T>(
     rkyv::boxed::BoxResolver<<[T] as ArchiveUnsized>::MetadataResolver>,
@@ -313,11 +483,7 @@ impl<T> SmallSliceBox<T> {
         let fat_ptr = Box::into_raw(boxed);
         let thin_ptr = fat_ptr as *mut T;
         let ptr = unsafe { core::ptr::NonNull::new_unchecked(thin_ptr) };
-        let res = SmallSliceBox {
-            ptr,
-            size,
-            marker: core::marker::PhantomData,
-        };
+        let res = SmallSliceBox { ptr, size };
         Ok(res)
     }
     /// Turns a Box into a SmallSliceBox.
@@ -360,7 +526,6 @@ impl<T> Drop for SmallSliceBox<T> {
             SmallSliceBox {
                 ptr: NonNull::dangling(),
                 size: 0,
-                marker: PhantomData,
             },
         );
         core::mem::forget(self);

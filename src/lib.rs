@@ -359,7 +359,6 @@ mod tests {
         println!("{:?}", bytes);
         let deserialized: SmallSliceBox<i32> = unsafe { rkyv::from_bytes_unchecked(&bytes) }.unwrap();
         println!("{:?}", deserialized);
-        assert!(false);
 
     }
 }
