@@ -526,7 +526,6 @@ where
     }
 }
 
-
 impl<T: PartialEq, SlimmerMetadata> PartialEq for SlimmerBox<T, SlimmerMetadata>
 where
     T: ?Sized,
@@ -571,13 +570,12 @@ where
     }
 }
 
-
 impl<T: Ord, SlimmerMetadata> Ord for SlimmerBox<T, SlimmerMetadata>
-    where
-        T: ?Sized,
-        T: SlimmerPointee<SlimmerMetadata>,
-        SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
-    {
+where
+    T: ?Sized,
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
+{
     #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         Ord::cmp(&**self, &**other)
@@ -588,7 +586,8 @@ where
     T: ?Sized,
     T: SlimmerPointee<SlimmerMetadata>,
     SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
-{}
+{
+}
 
 impl<T: core::hash::Hash, SlimmerMetadata> core::hash::Hash for SlimmerBox<T, SlimmerMetadata>
 where
@@ -600,8 +599,6 @@ where
         (**self).hash(state);
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {
