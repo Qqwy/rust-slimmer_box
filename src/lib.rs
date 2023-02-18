@@ -5,11 +5,10 @@ use ptr_meta::{Pointee, PtrExt};
 use bytecheck::CheckBytes;
 use rkyv::{Archive, Deserialize, Serialize, Archived, Resolver, ArchiveUnsized, boxed::ArchivedBox, SerializeUnsized};
 
-
-
-use trace::trace;
-trace::init_depth_var!();
-
+pub mod slim_pointee;
+pub mod clone_unsized;
+pub use crate::slim_pointee::SlimmerPointee;
+pub use crate::clone_unsized::CloneUnsized;
 
 // #[derive(Archive, Serialize, Deserialize)]
 // // #[rustc_layout(debug)]
@@ -20,7 +19,7 @@ trace::init_depth_var!();
 //     OutOfLine(SlimmerBox<i32>),
 // }
 
-/// A packed alternative to `Box<[T]>` for slices with at most 2ˆ32 (4_294_967_296) elements.
+/// A packed alternative to `Box<T>` whose 'fat' pointer is 'slimmer'.
 ///
 /// A normal `Box<[T]>` is an owned 'fat pointer' that contains both the 'raw' pointer to memory
 /// as well as the size (as an usize) of the managed slice.
@@ -29,13 +28,16 @@ trace::init_depth_var!();
 /// That's a shame: It means that if you build an enum that contains a `Box<[T]>`,
 /// then it will at least require 24 bytes (196 bits, 3 words) of stack memory.
 ///
-/// But it is rather common to work with slices that will never be that large:
-/// a `[u8; 2^32]` takes 4GiB of space. Are you really working with strings that are larger in your app?
+/// But it is rather common to work with slices that will never be that large.
+/// For example, what if we store the size in a u32 instead?
+/// Will your slices really contain more than 2ˆ32 (4_294_967_296) elements?
+/// a `[u8; 2^32]` takes 4GiB of space.
 ///
 /// And since the length is counted in elements, a `[u64; 2^32]` takes 32GiB.
 ///
-/// By storing the length of such a 'fat pointer' inside a u32 rather than a u64,
-/// a SlimmerBox only takes up 12 bytes (96 bits, 1.5 words) rather than 16 bytes.
+/// So lets slim this 'fat' pointer down!
+/// By storing the length inside a u32 rather than a u64,
+/// a SlimmerBox<[T], u32> only takes up 12 bytes (96 bits, 1.5 words) rather than 16 bytes.
 ///
 /// This allows it to be used inside another structure, such as in one or more variants of an enum.
 /// The resulting structure will then still only take up 16 bytes.
@@ -43,7 +45,26 @@ trace::init_depth_var!();
 /// In situations where you are trying to optimize for memory usage, cache locality, etc,
 /// this might make a difference.
 ///
+/// # Different sizes
+///
+/// SlimmerBox<T, u32> is the most common version, and therefore u32 is the default SlimmerMetadata to use.
+/// But it is possible to use another variant, if you are sure that your data will be even shorter.
+///
+/// - SlimmerMetadata = `()` is used for sized types. In this case a SlimmerBox will only contain the normal pointer and be exactly 1 word size, just like a normal Box.
+/// - SlimmerMetadata = u64 would make SlimmerBox behave exactly like a normal Box on a 64-bit system.
+///
+/// | SlimmerMetadata | max DST length¹      | resulting size (32bit) | resulting size (64bit) | Notes                                                                           |
+/// | ()              | -                    | 4 bytes                | 8 bytes                | Used for normal sized types. Identical in size to a normal Box<T> in this case. |
+/// | u8              | 15                   | 5 bytes                | 9 bytes                |                                                                                 |
+/// | u16             | 65535                | 6 bytes                | 10 bytes               | Identical to Box<DST> on 16-bit systems                                         |
+/// | u32             | 4294967295           | 8 bytes (2 words)      | 12 bytes               | Identical to Box<DST> on 32-bit systems                                         |
+/// | u64             | 18446744073709551615 | -²                     | 16 bytes (2 words)     | Identical to Box<DST> on 64-bit systems                                         |
+///
+/// - ¹ Max DST length is in bytes for `str` and in no. of elements for slices.
+/// - ² Not implemented for 32-bit targets.
+///
 /// # Niche optimization
+///
 /// Just like a normal Box, `sizeof(Option<SlimmerBox<T>>) == sizeof(SlimmerBox<T>)`.
 ///
 /// # Rkyv
@@ -55,32 +76,32 @@ trace::init_depth_var!();
 /// Changing it to `size_64` is rarely useful for the same reason as the rant about lengths above.)
 
 #[repr(packed)]
-pub struct SlimmerBox<T, SlimMetadata = u32>
+pub struct SlimmerBox<T, SlimmerMetadata = u32>
 where
     T: ?Sized,
-    T: SlimPointee<SlimMetadata>,
-    SlimMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy
 {
     ptr: core::ptr::NonNull<()>,
-    meta: SlimMetadata,
+    meta: SlimmerMetadata,
     marker: PhantomData<T>,
 }
 
-pub struct PointerMetadataDoesNotFitError<T, SlimMetadata>
+pub struct PointerMetadataDoesNotFitError<T, SlimmerMetadata>
 where
     T: ?Sized,
-    T: SlimPointee<SlimMetadata>,
-    SlimMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata>
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata>
 {
     meta: <T as Pointee>::Metadata,
-    marker: PhantomData<SlimMetadata>,
+    marker: PhantomData<SlimmerMetadata>,
 }
 
-impl<T, SlimMetadata> std::fmt::Debug for PointerMetadataDoesNotFitError<T, SlimMetadata>
+impl<T, SlimmerMetadata> std::fmt::Debug for PointerMetadataDoesNotFitError<T, SlimmerMetadata>
 where
     T: ?Sized,
-    T: SlimPointee<SlimMetadata>,
-    SlimMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata>,
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata>,
     // <T as Pointee>::Metadata: std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -90,162 +111,74 @@ where
     }
 }
 
-impl<T, SlimMetadata> std::fmt::Display for PointerMetadataDoesNotFitError<T, SlimMetadata>
+impl<T, SlimmerMetadata> std::fmt::Display for PointerMetadataDoesNotFitError<T, SlimmerMetadata>
     where
     T: ?Sized,
-    T: SlimPointee<SlimMetadata>,
-    SlimMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata>,
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata>,
     // <T as Pointee>::Metadata: std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "Pointer Metadata {} ({} bytes) could not be converted to {} ({} bytes)",
                core::any::type_name::<<T as Pointee>::Metadata>(),
                core::mem::size_of::<<T as Pointee>::Metadata>(),
-               core::any::type_name::<SlimMetadata>(),
-               core::mem::size_of::<SlimMetadata>()
+               core::any::type_name::<SlimmerMetadata>(),
+               core::mem::size_of::<SlimmerMetadata>()
         )
     }
 }
 
-/// Generalization of Clone which supports dynamically-sized or otherwise unsized types.
-///
-/// Implemented for:
-/// - [T] as long as T itself is Clone.
-/// - `str`.
-/// - Any type that itself implements Clone.
-///
-/// This trait can easily be implemented for any other dynamically-sized type as well.
-pub trait CloneUnsized {
 
-    /// Mutates `self` to become a clone of `source`.
-    ///
-    /// Signature closely matches `std::slice::clone_from_slice()` on purpose.
-    fn unsized_clone_from(&mut self, source: &Self);
-}
-
-impl<T> CloneUnsized for [T]
-where
-T: Clone
-{
-    fn unsized_clone_from(&mut self, source: &Self) {
-        self.clone_from_slice(source)
-    }
-}
-
-impl CloneUnsized for str
-{
-    fn unsized_clone_from(&mut self, source: &Self) {
-        // SAFETY: Cloning valid UTF8 bytes will result in valid UTF8 bytes
-        unsafe { self.as_bytes_mut() }.clone_from_slice(source.as_bytes())
-    }
-}
-
-/// Blanket implementation for any sized T that uses the normal Clone.
-impl<T: Clone> CloneUnsized for T {
-    fn unsized_clone_from(&mut self, source: &Self) {
-        *self = source.clone();
-    }
-}
-
-/// Trait which can be implemented by any pointer-like types,
-/// as long as their metadata might be made smaller.
-///
-/// As such, it is implemented for:
-/// - Zero-sized types (no metadata and actually also no pointer)
-/// - Statically-sized types (no metadata)
-/// - Dynamically-sized types (metadata indicates length which can be made smaller if the length fits in the smaller int)
-///
-/// It is _not_ implemented for trait objects, because their metadata is itself a pointer!
-///
-/// # SlimMetadata bounds
-///
-/// Note that while there is only a TryInto<Metadata> bound on SlimMetadata,
-/// this is only because the compiler does not know that the SlimMetadata values we create
-/// only ever originate from Metadata.
-/// In other words:
-/// `Metadata.try_into::<SlimMetadata>().try_into::<Metadata>().unwrap()` should never fail.
-pub trait SlimPointee<SlimMetadata>: Pointee
-    where
-    <Self as Pointee>::Metadata: Clone,
-    SlimMetadata: TryFrom<<Self as Pointee>::Metadata> + TryInto<<Self as Pointee>::Metadata>
-{
-}
-
-// #[cfg(any(target_pointer_width = "16", target_pointer_width = "32", target_pointer_width = "64"))]
-// impl<T> SlimPointee<u16> for [T] {}
-
-#[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
-impl<T> SlimPointee<u32> for [T] {}
-
-#[cfg(any(target_pointer_width = "64"))]
-impl<T> SlimPointee<u64> for [T] {}
-
-#[cfg(any(target_pointer_width = "16", target_pointer_width = "32", target_pointer_width = "64"))]
-impl SlimPointee<u16> for str {}
-
-#[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
-impl SlimPointee<u32> for str {}
-
-#[cfg(any(target_pointer_width = "64"))]
-impl SlimPointee<u64> for str {}
-
-#[cfg(any(target_pointer_width = "64"))]
-impl<T: Sized> SlimPointee<()> for T {}
-
-
-impl<T, SlimMetadata> SlimmerBox<T, SlimMetadata>
+impl<T, SlimmerMetadata> SlimmerBox<T, SlimmerMetadata>
 where
     T: ?Sized,
-    T: SlimPointee<SlimMetadata>,
-    SlimMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
 {
-
-    /// Creates a new SlimmerBox from the given slice.
+    /// Creates a new SlimmerBox from the given value (which may be a slice, string or other dynamically sized type).
     ///
     /// This involves cloning the slice (which will clone all elements one by one)
-    /// first into a vector, which is then turned into the SlimmerBox.
+    /// and as such only works for types whose contents are cloneable.
+    /// Otherwise, use `from_box`.
     ///
-    /// Panics if the slice's length cannot fit in a u32.
-    pub fn new(slice: &T) -> Self
+    /// Panics if the value's Metadata is too large to fit in SlimmerMetadata.
+    pub fn new(value: &T) -> Self
     where
         T: CloneUnsized,
     {
-        Self::try_new(slice).unwrap()
+        Self::try_new(value).unwrap()
     }
 
-    /// Creates a new SlimmerBox from the given slice.
-    ///
-    /// This involves cloning the slice (which will clone all elements one by one)
-    /// first into a vector, which is then turned into the SlimmerBox.
+    /// Variant of `new` that skips its size check.
     ///
     /// # Safety
     /// The caller must ensure that `slice`'s length can fit in a u32.
-    pub unsafe fn new_unchecked(slice: &T) -> Self
+    pub unsafe fn new_unchecked(value: &T) -> Self
     where
         T: CloneUnsized,
     {
-        Self::try_new(slice).unwrap_unchecked()
+        Self::try_new(value).unwrap_unchecked()
     }
 
     /// Variant of `new` which will return an error if the slice is too long instead of panicing.
-    pub fn try_new(slice: &T) -> Result<Self, PointerMetadataDoesNotFitError<T, SlimMetadata>>
+    pub fn try_new(value: &T) -> Result<Self, PointerMetadataDoesNotFitError<T, SlimmerMetadata>>
     where
         T: CloneUnsized,
     {
-        let meta = ptr_meta::metadata(slice);
-        let layout = std::alloc::Layout::for_value(slice);
+        let meta = ptr_meta::metadata(value);
+        let layout = std::alloc::Layout::for_value(value);
         let alloc_ptr = unsafe { std::alloc::alloc(layout) } as *mut ();
         let target_ptr: *mut T = ptr_meta::from_raw_parts_mut(alloc_ptr, meta);
         // SAFETY: We obtain a reference to newly allocated space
         // This is not yet a valid T, but we only use it to immediately write into
-        unsafe { &mut *target_ptr }.unsized_clone_from(slice);
+        unsafe { &mut *target_ptr }.unsized_clone_from(value);
 
         // SAFETY: We pass a newly allocated, filled, ptr
         unsafe { Self::try_from_raw(target_ptr) }
     }
 
-    /// Variant of `from_box` which will return an error if the slice is too long instead of panicing.
-    pub fn try_from_box(boxed: Box<T>) -> Result<Self, PointerMetadataDoesNotFitError<T, SlimMetadata>> {
+    /// Variant of `from_box` which will return an error if the value's metadata is too large instead of panicing.
+    pub fn try_from_box(boxed: Box<T>) -> Result<Self, PointerMetadataDoesNotFitError<T, SlimmerMetadata>> {
         let fat_ptr = Box::into_raw(boxed);
         // SAFETY: Box ensures fat_ptr is non-null
         unsafe { Self::try_from_raw(fat_ptr) }
@@ -253,8 +186,7 @@ where
 
     /// Builds a new SlimmerBox from a raw mutable pointer
     ///
-    ///
-    /// Panics if the slice's length cannot fit in a u32.
+    /// Panics if the type's metadata is too large.
     ///
     /// # Safety
     /// Caller must ensure *T is valid, and non-null
@@ -267,8 +199,8 @@ where
     /// Builds a new SlimmerBox from a raw mutable pointer
     ///
 
-    /// Variant of `from_box` which will return an error if the slice is too long instead of panicing.
-    pub unsafe fn try_from_raw(target_ptr: *mut T) -> Result<Self, PointerMetadataDoesNotFitError<T, SlimMetadata>> {
+    /// Variant of `from_box` which will return an error if the value's metadata is too large instead of panicing.
+    pub unsafe fn try_from_raw(target_ptr: *mut T) -> Result<Self, PointerMetadataDoesNotFitError<T, SlimmerMetadata>> {
         let (thin_ptr, meta) = ptr_meta::PtrExt::to_raw_parts(target_ptr);
         let slim_meta = meta.try_into().map_err(|_| PointerMetadataDoesNotFitError{meta, marker: PhantomData})?;
 
@@ -283,9 +215,9 @@ where
 
     /// Turns a Box into a SlimmerBox.
     ///
-    /// This is a fast constant-time operation that needs no allocation.
+    /// This is a fast constant-time operation that needs no allocation, as it consumes the box.
     ///
-    /// Panics if the slice's length cannot fit in a u32.
+    /// Panics if the pointer's metadata is too large to made slimmer.
     pub fn from_box(boxed: Box<T>) -> Self {
         Self::try_from_box(boxed).unwrap()
     }
@@ -293,7 +225,7 @@ where
     /// Variant of `from_box` that will not check whether the slice is short enough.
     ///
     /// # Safety
-    /// - The caller needs to ensure that the slice never has more elements than can fit in a u32.
+    /// The caller needs to ensure that the conversion from Metadata to SlimmerMetadata will not fail.
     pub unsafe fn from_box_unchecked(boxed: Box<T>) -> Self {
         Self::try_from_box(boxed).unwrap_unchecked()
     }
@@ -302,7 +234,7 @@ where
     ///
     /// This is a fast constant-time operation that needs no allocation.
     ///
-    /// Not an associated function to not interfere with Deref
+    /// Not an associated function to not interfere with Deref, so use fully qualified syntax to call it.
     pub fn into_box(this: Self) -> Box<T> {
         let ptr = Self::into_raw(this);
         // SAFETY: We reconstruct using the inverse operations from construction
@@ -315,6 +247,8 @@ where
     ///
     /// This function is mainly useful if you need to implement something that exists for Box
     /// but not (yet) for SlimmerBox. Feel free to open an issue or contribute a PR!
+    ///
+    /// Not an associated function to not interfere with Deref, so use fully qualified syntax to call it.
     pub fn to_ptr(this: &Self) -> *const T {
         let ptr = ptr_meta::from_raw_parts(this.ptr.as_ptr(), SlimmerBox::metadata(this));
         ptr
@@ -326,6 +260,8 @@ where
     ///
     /// Calling this function is safe, but most operations on the result are not.
     /// Similar caveats apply as to Box::into_raw.
+    ///
+    /// Not an associated function to not interfere with Deref, so use fully qualified syntax to call it.
     pub fn into_raw(this: Self) -> *mut T {
         let ptr = ptr_meta::from_raw_parts_mut(this.ptr.as_ptr(), SlimmerBox::metadata(&this));
         // Make sure the pointer remains valid; Caller is now responsible for managing the memory:
@@ -333,21 +269,28 @@ where
         ptr
     }
 
-    pub fn slim_metadata(this: &Self) -> SlimMetadata {
+    /// Retrieve access to the stored slimmer metadata value.
+    ///
+    /// Not an associated function to not interfere with Deref, so use fully qualified syntax to call it.
+    pub fn slim_metadata(this: &Self) -> SlimmerMetadata {
         this.meta
     }
 
+    /// Returns the outcome of converting the stored SlimmerMetadata value back into its original Metadata form.
+    ///
+    /// Not an associated function to not interfere with Deref, so use fully qualified syntax to call it.
     pub fn metadata(this: &Self) -> <T as Pointee>::Metadata {
         let aligned_len = SlimmerBox::slim_metadata(this);
+        // SAFETY: Guaranteed to not fail by the unsafe SlimmerPointee trait
         unsafe { aligned_len.try_into().unwrap_unchecked() }
     }
 }
 
-impl<T, SlimMetadata> Drop for SlimmerBox<T, SlimMetadata>
+impl<T, SlimmerMetadata> Drop for SlimmerBox<T, SlimmerMetadata>
 where
     T: ?Sized,
-    T: SlimPointee<SlimMetadata>,
-    SlimMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy
 {
     fn drop(&mut self) {
         let me = std::mem::replace(self, SlimmerBox { ptr: NonNull::dangling(), meta: self.meta, marker: PhantomData});
@@ -356,11 +299,11 @@ where
     }
 }
 
-impl<T, SlimMetadata> Deref for SlimmerBox<T, SlimMetadata>
+impl<T, SlimmerMetadata> Deref for SlimmerBox<T, SlimmerMetadata>
 where
     T: ?Sized,
-    T: SlimPointee<SlimMetadata>,
-    SlimMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
 {
     type Target = T;
     fn deref(&self) -> &Self::Target {
@@ -370,11 +313,11 @@ where
     }
 }
 
-impl<T, SlimMetadata> DerefMut for SlimmerBox<T, SlimMetadata>
+impl<T, SlimmerMetadata> DerefMut for SlimmerBox<T, SlimmerMetadata>
 where
     T: ?Sized,
-    T: SlimPointee<SlimMetadata>,
-    SlimMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         let ptr = ptr_meta::from_raw_parts_mut(self.ptr.as_ptr(), SlimmerBox::metadata(self));
@@ -383,33 +326,33 @@ where
     }
 }
 
-impl<T, SlimMetadata> core::borrow::Borrow<T> for SlimmerBox<T, SlimMetadata>
+impl<T, SlimmerMetadata> core::borrow::Borrow<T> for SlimmerBox<T, SlimmerMetadata>
 where
     T: ?Sized,
-    T: SlimPointee<SlimMetadata>,
-    SlimMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
 {
     fn borrow(&self) -> &T {
         &**self
     }
 }
 
-impl<T, SlimMetadata> core::borrow::BorrowMut<T> for SlimmerBox<T, SlimMetadata>
+impl<T, SlimmerMetadata> core::borrow::BorrowMut<T> for SlimmerBox<T, SlimmerMetadata>
 where
     T: ?Sized,
-    T: SlimPointee<SlimMetadata>,
-    SlimMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
 {
     fn borrow_mut(&mut self) -> &mut T {
         &mut **self
     }
 }
 
-impl<T, SlimMetadata> AsRef<T> for SlimmerBox<T, SlimMetadata>
+impl<T, SlimmerMetadata> AsRef<T> for SlimmerBox<T, SlimmerMetadata>
 where
     T: ?Sized,
-    T: SlimPointee<SlimMetadata>,
-    SlimMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
 {
     fn as_ref(&self) -> &T {
         &**self
@@ -417,44 +360,44 @@ where
 }
 
 
-impl<T, SlimMetadata> AsMut<T> for SlimmerBox<T, SlimMetadata>
+impl<T, SlimmerMetadata> AsMut<T> for SlimmerBox<T, SlimmerMetadata>
 where
     T: ?Sized,
-    T: SlimPointee<SlimMetadata>,
-    SlimMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
 {
     fn as_mut(&mut self) -> &mut T {
         &mut **self
     }
 }
 
-impl<T, SlimMetadata> Unpin for SlimmerBox<T, SlimMetadata>
+impl<T, SlimmerMetadata> Unpin for SlimmerBox<T, SlimmerMetadata>
 where
     T: ?Sized,
-    T: SlimPointee<SlimMetadata>,
-    SlimMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
 {}
 
-impl<T, SlimMetadata> Clone for SlimmerBox<T, SlimMetadata>
+impl<T, SlimmerMetadata> Clone for SlimmerBox<T, SlimmerMetadata>
 where
     T: Clone,
     T: ?Sized,
-    T: SlimPointee<SlimMetadata>,
-    SlimMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
 {
     fn clone(&self) -> Self {
-        let slice = self.deref();
+        let value = self.deref();
         // SAFETY: The original SlimmerBox already checked this invariant on construction
-        unsafe { SlimmerBox::new_unchecked(slice) }
+        unsafe { SlimmerBox::new_unchecked(value) }
     }
 }
 
-impl<T, SlimMetadata> core::fmt::Debug for SlimmerBox<T, SlimMetadata>
+impl<T, SlimmerMetadata> core::fmt::Debug for SlimmerBox<T, SlimmerMetadata>
 where
     T: core::fmt::Debug,
     T: ?Sized,
-    T: SlimPointee<SlimMetadata>,
-    SlimMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         core::fmt::Debug::fmt(&**self, f)
@@ -477,48 +420,6 @@ pub enum Thing{
 // pub struct Foo {
 //     ptr: Box<str>,
 // }
-
-// pub const FANOUT: usize = 10;
-// pub type NodeId = usize;
-
-// #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
-// pub enum SerializableNode<K, V>
-// where
-//     K: Default + rkyv::Archive,
-//     V: Default + rkyv::Archive,
-// {
-//     Leaf {
-//         keys: tinyvec::ArrayVec<[K; FANOUT]>,
-//         values: tinyvec::ArrayVec<[V; FANOUT]>,
-//     },
-//     Internal {
-// 	#[omit_bounds]
-//         keys: tinyvec::ArrayVec<[K; FANOUT]>,
-//         children: tinyvec::ArrayVec<[NodeId; FANOUT]>,
-//     },
-// }
-
-// #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
-// #[archive_attr(derive(CheckBytes))]
-// // #[archive_attr(derive(Debug))] // <-- This line is problematic!
-// pub struct Wrapper<T> {
-//     stuff: T,
-// }
-
-// // use std::fmt::Debug;
-// // impl<T> Debug for ArchivedWrapper<T>
-// // where
-// //     T: Archive,
-// //     <T as Archive>::Archived: Debug,
-// // {
-// //     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-// //         f.debug_struct("Wrapper")
-// //             .field("stuff", &self.stuff)
-// //             .finish()
-// //     }
-// // }
-
-
 
 // pub struct SlimmerBoxResolver<T>(rkyv::boxed::BoxResolver<<[T] as ArchiveUnsized>::MetadataResolver>)
 // where
