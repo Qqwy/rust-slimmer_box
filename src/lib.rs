@@ -228,10 +228,12 @@ where
         Self::try_from_raw(target_ptr).unwrap()
     }
 
-    /// Builds a new SlimmerBox from a raw mutable pointer
+    /// Variant of `from_raw` which will return an error if the value's metadata is too large instead of panicing.
     ///
-
-    /// Variant of `from_box` which will return an error if the value's metadata is too large instead of panicing.
+    /// # Safety
+    /// Caller must ensure *T is valid, and non-null
+    ///
+    /// Furthermore, similar caveats apply as with Box::from_raw.
     pub unsafe fn try_from_raw(
         target_ptr: *mut T,
     ) -> Result<Self, PointerMetadataDoesNotFitError<T, SlimmerMetadata>> {
@@ -328,6 +330,7 @@ where
     SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
 {
     fn drop(&mut self) {
+        // NOTE: The garbage value will not be dropped which is exactly what we want
         let me = core::mem::replace(
             self,
             SlimmerBox {
@@ -336,7 +339,6 @@ where
                 marker: PhantomData,
             },
         );
-        core::mem::forget(self);
         let _drop_this_box = SlimmerBox::into_box(me);
     }
 }
