@@ -111,26 +111,23 @@ where
     marker: PhantomData<T>,
 }
 
-pub struct PointerMetadataDoesNotFitError<T, SlimmerMetadata>
+pub struct PointerMetadataDoesNotFitError<T, SlimmerMetadata>(PhantomData<T>, PhantomData<SlimmerMetadata>,)
 where
     T: ?Sized,
     T: SlimmerPointee<SlimmerMetadata>,
     SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata>,
-{
-    meta: <T as Pointee>::Metadata,
-    marker: PhantomData<SlimmerMetadata>,
-}
+    ;
 
 impl<T, SlimmerMetadata> core::fmt::Debug for PointerMetadataDoesNotFitError<T, SlimmerMetadata>
 where
     T: ?Sized,
     T: SlimmerPointee<SlimmerMetadata>,
     SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata>,
-    // <T as Pointee>::Metadata: core::fmt::Debug,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
         f.debug_struct("PointerMetadataDoesNotFitError")
-            // .field("meta", &self.meta)
+            .field("metadata_type", &core::any::type_name::<<T as Pointee>::Metadata>())
+            .field("slimmer_metadata_type", &core::any::type_name::<SlimmerMetadata>())
             .finish()
     }
 }
@@ -233,10 +230,7 @@ where
         let (thin_ptr, meta) = ptr_meta::PtrExt::to_raw_parts(target_ptr);
         let slim_meta = meta
             .try_into()
-            .map_err(|_| PointerMetadataDoesNotFitError {
-                meta,
-                marker: PhantomData,
-            })?;
+            .map_err(|_| PointerMetadataDoesNotFitError(PhantomData, PhantomData))?;
 
         // SAFETY: Box ensures its ptr is never null.
         let ptr = unsafe { core::ptr::NonNull::new_unchecked(thin_ptr as *mut ()) };
