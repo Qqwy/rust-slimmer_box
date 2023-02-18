@@ -111,12 +111,14 @@ where
     marker: PhantomData<T>,
 }
 
-pub struct PointerMetadataDoesNotFitError<T, SlimmerMetadata>(PhantomData<T>, PhantomData<SlimmerMetadata>,)
+pub struct PointerMetadataDoesNotFitError<T, SlimmerMetadata>(
+    PhantomData<T>,
+    PhantomData<SlimmerMetadata>,
+)
 where
     T: ?Sized,
     T: SlimmerPointee<SlimmerMetadata>,
-    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata>,
-    ;
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata>;
 
 impl<T, SlimmerMetadata> core::fmt::Debug for PointerMetadataDoesNotFitError<T, SlimmerMetadata>
 where
@@ -126,8 +128,14 @@ where
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
         f.debug_struct("PointerMetadataDoesNotFitError")
-            .field("metadata_type", &core::any::type_name::<<T as Pointee>::Metadata>())
-            .field("slimmer_metadata_type", &core::any::type_name::<SlimmerMetadata>())
+            .field(
+                "metadata_type",
+                &core::any::type_name::<<T as Pointee>::Metadata>(),
+            )
+            .field(
+                "slimmer_metadata_type",
+                &core::any::type_name::<SlimmerMetadata>(),
+            )
             .finish()
     }
 }
@@ -278,7 +286,6 @@ where
     ///
     /// Not an associated function to not interfere with Deref, so use fully qualified syntax to call it.
     pub fn to_ptr(this: &Self) -> *const T {
-        
         ptr_meta::from_raw_parts(this.ptr.as_ptr(), SlimmerBox::metadata(this))
     }
 
