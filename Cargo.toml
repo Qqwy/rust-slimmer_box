@@ -10,3 +10,4 @@ rkyv = { version = "0.7.39", features = ["tinyvec"] }
 bytecheck = "0.6.9"
 tinyvec = "1.6.0"
 trace = "0.1.7"
+ptr_meta = "0.2.0"

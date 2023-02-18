@@ -1,5 +1,6 @@
 #![feature(rustc_attrs)]
 use std::{mem::ManuallyDrop, ptr::NonNull, marker::PhantomData, ops::{Deref, DerefMut}};
+use ptr_meta::Pointee;
 
 use bytecheck::CheckBytes;
 use rkyv::{Archive, Deserialize, Serialize, Archived, Resolver, ArchiveUnsized, boxed::ArchivedBox, SerializeUnsized};
@@ -10,14 +11,14 @@ use trace::trace;
 trace::init_depth_var!();
 
 
-#[derive(Archive, Serialize, Deserialize)]
-// #[rustc_layout(debug)]
-// #[archive_attr(rustc_layout(debug))]
-pub enum Foo {
-    First(bool),
-    Second(u32),
-    OutOfLine(SmallSliceBox<i32>),
-}
+// #[derive(Archive, Serialize, Deserialize)]
+// // #[rustc_layout(debug)]
+// // #[archive_attr(rustc_layout(debug))]
+// pub enum Foo {
+//     First(bool),
+//     Second(u32),
+//     OutOfLine(SmallSliceBox<i32>),
+// }
 
 /// A packed alternative to `Box<[T]>` for slices with at most 2ˆ32 (4_294_967_296) elements.
 ///
@@ -54,59 +55,27 @@ pub enum Foo {
 /// Changing it to `size_64` is rarely useful for the same reason as the rant about lengths above.)
 
 #[repr(packed)]
-pub struct SmallSliceBox<T> {
-    ptr: core::ptr::NonNull<T>,
-    size: u32,
-}
-
-pub struct SmallSliceBoxResolver<T>(rkyv::boxed::BoxResolver<<[T] as ArchiveUnsized>::MetadataResolver>)
+pub struct SmallSliceBox<T>
 where
-    Box<[T]>: Archive,
-    [T]: ArchiveUnsized;
-
-/// SmallSliceBox is archived into an ArchivedBox<[T]>, just like a normal box.
-impl<T> Archive for SmallSliceBox<T>
-    where
-    Box<[T]>: Archive,
-    [T]: ArchiveUnsized,
+    T: Pointee<Metadata = usize> + ?Sized,
 {
-    type Archived = ArchivedBox<<[T] as ArchiveUnsized>::Archived>;
-    type Resolver = SmallSliceBoxResolver<T>;
+    ptr: core::ptr::NonNull<()>,
+    len: u32,
+    marker: PhantomData<T>,
+}
 
-    #[inline]
-    unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
-        println!("Resolving {:?}", &self as *const _);
-        rkyv::boxed::ArchivedBox::resolve_from_ref(self.as_ref(), pos, resolver.0, out)
+#[derive(Debug)]
+pub struct SliceTooLargeError{len: usize}
+impl std::fmt::Display for SliceTooLargeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) {
+        write!(f, "Pointed-to slice len {} was too large to fit in a SmallSliceBox (which can fit slices at most 2^32 elements long)", self.len);
     }
 }
 
-impl<S: rkyv::Fallible + ?Sized, T> Serialize<S> for SmallSliceBox<T>
-    where
-    Box<[T]>: Serialize<S>,
-    [T]: SerializeUnsized<S>,
+impl<T> SmallSliceBox<T>
+where
+    T: Pointee<Metadata = usize> + ?Sized,
 {
-    #[inline]
-    fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
-        println!("Serializing {:?}", &self as *const _);
-        let res = ArchivedBox::serialize_from_ref(self.as_ref(), serializer)?;
-        Ok(SmallSliceBoxResolver(res))
-    }
-}
-
-impl<T, D> Deserialize<SmallSliceBox<T>, D> for ArchivedBox<<[T] as ArchiveUnsized>::Archived>
-    where
-    [T]: ArchiveUnsized,
-    <[T] as ArchiveUnsized>::Archived: rkyv::DeserializeUnsized<[T], D>,
-    D: rkyv::Fallible + ?Sized,
-{
-    fn deserialize(&self, deserializer: &mut D) -> Result<SmallSliceBox<T>, D::Error> {
-        println!("Deserializing {:?}", &self as *const _);
-        let boxed: Box<[T]> = self.deserialize(deserializer)?;
-        Ok(SmallSliceBox::from_box(boxed))
-    }
-}
-
-impl<T> SmallSliceBox<T> {
 
     /// Creates a new SmallSliceBox from the given slice.
     ///
@@ -114,12 +83,11 @@ impl<T> SmallSliceBox<T> {
     /// first into a vector, which is then turned into the SmallSliceBox.
     ///
     /// Panics if the slice's length cannot fit in a u32.
-    pub fn new(slice: &[T]) -> Self
+    pub fn new(slice: &T) -> Self
     where
         T: Clone,
     {
-        let boxed: Box<[T]> = slice.to_vec().into_boxed_slice();
-        Self::from_box(boxed)
+        Self::try_new(slice).unwrap()
     }
 
     /// Creates a new SmallSliceBox from the given slice.
@@ -129,21 +97,31 @@ impl<T> SmallSliceBox<T> {
     ///
     /// # Safety
     /// The caller must ensure that `slice`'s length can fit in a u32.
-    pub unsafe fn new_unchecked(slice: &[T]) -> Self
+    pub unsafe fn new_unchecked(slice: &T) -> Self
     where
         T: Clone,
     {
-        let boxed: Box<[T]> = slice.to_vec().into_boxed_slice();
-        Self::from_box_unchecked(boxed)
+        Self::try_new(slice).unwrap_unchecked()
     }
 
     /// Variant of `new` which will return an error if the slice is too long instead of panicing.
-    pub fn try_new(slice: &[T]) -> Result<Self, <u32 as TryFrom<usize>>::Error>
+    pub fn try_new(slice: &T) -> Result<Self, SliceTooLargeError>
     where
         T: Clone,
     {
-        let boxed: Box<[T]> = slice.to_vec().into_boxed_slice();
-        Self::try_from_box(boxed)
+        let layout = std::alloc::Layout::for_value(slice);
+        let fat_source_ptr = &slice as *mut _;
+        let (source_ptr, len) = fat_source_ptr.to_raw_parts();
+        let small_len = len.try_into().map_err(|_| SliceTooLargeError{len})?;
+
+        let target_ptr = unsafe { std::alloc::alloc(layout) };
+        unsafe { target_ptr.write(slice.clone()) };
+
+        Ok(Self {
+            ptr: target_ptr,
+            len: small_len,
+            marker: PhantomData,
+        })
     }
 
     /// Optimization of `new` for types implementing `Copy`
@@ -152,34 +130,60 @@ impl<T> SmallSliceBox<T> {
     /// and creating a copy from the slice is much faster.
     ///
     /// Panics if the slice's length cannot fit in a u32.
-    pub fn new_from_copy(slice: &[T]) -> Self
+    pub fn new_from_copy(slice: &T) -> Self
     where
         T: Copy,
     {
-        let boxed: Box<[T]> = slice.into();
-        Self::from_box(boxed)
+        Self::try_new_from_copy(slice).unwrap()
     }
 
     /// Variant of `new_from_copy` which will return an error if the slice is too long instead of panicing.
-    pub fn try_new_from_copy(slice: &[T]) -> Result<Self, <u32 as TryFrom<usize>>::Error>
+    pub fn try_new_from_copy(slice: &T) -> Result<Self, <u32 as TryFrom<usize>>::Error>
     where
         T: Copy,
     {
-        let boxed: Box<[T]> = slice.into();
-        Self::try_from_box(boxed)
+        let layout = std::alloc::Layout::for_value(slice);
+        let fat_source_ptr = &slice as *mut _;
+        let (source_ptr, len) = fat_source_ptr.to_raw_parts();
+        let small_len = len.try_into().map_err(|_| SliceTooLargeError{len})?;
+
+        let target_ptr = unsafe { std::alloc::alloc(layout) };
+        // SAFETY:
+        // - We copy into newly allocated memory. As such it is guaranteed not to overlap
+        // - T is Copy
+        unsafe { core::ptr::copy_nonoverlapping(source_ptr, target_ptr, len) };
+
+        Ok(Self {
+            ptr: target_ptr,
+            len: small_len,
+            marker: PhantomData,
+        })
+    }
+
+    /// Optimization of `new_unchecked` for types implementing `Copy`.
+    ///
+    /// # Safety
+    /// The caller must ensure that `slice`'s length can fit in a u32.
+    pub unsafe fn new_from_copy_unchecked(slice: &T) -> Self
+    where
+        T: Copy,
+    {
+        Self::try_new_from_copy(slice).unwrap_unchecked()
     }
 
     /// Variant of `from_box` which will return an error if the slice is too long instead of panicing.
-    pub fn try_from_box(boxed: Box<[T]>) -> Result<Self, <u32 as TryFrom<usize>>::Error> {
-        println!("Hello");
-        let size = boxed.len().try_into()?;
+    pub fn try_from_box(boxed: Box<T>) -> Result<Self, SliceTooLargeError> {
+        let layout = std::alloc::Layout::for_value(&*boxed);
         let fat_ptr = Box::into_raw(boxed);
-        let thin_ptr = fat_ptr as *mut T; // NOTE: Is there a nicer way to do this?
+        let (thin_ptr, len) = fat_ptr.to_raw_parts();
+        let small_len = len.try_into().map_err(|_| SliceTooLargeError{len})?;
+
         // SAFETY: Box ensures its ptr is never null.
         let ptr = unsafe { core::ptr::NonNull::new_unchecked(thin_ptr) };
         let res = SmallSliceBox {
             ptr,
-            size,
+            len,
+            marker: PhantomData,
         };
         Ok(res)
     }
@@ -189,7 +193,7 @@ impl<T> SmallSliceBox<T> {
     /// This is a fast constant-time operation that needs no allocation.
     ///
     /// Panics if the slice's length cannot fit in a u32.
-    pub fn from_box(boxed: Box<[T]>) -> Self {
+    pub fn from_box(boxed: Box<T>) -> Self {
         Self::try_from_box(boxed).unwrap()
     }
 
@@ -197,20 +201,16 @@ impl<T> SmallSliceBox<T> {
     ///
     /// # Safety
     /// - The caller needs to ensure that the slice never has more elements than can fit in a u32.
-    pub unsafe fn from_box_unchecked(boxed: Box<[T]>) -> Self {
+    pub unsafe fn from_box_unchecked(boxed: Box<T>) -> Self {
         Self::try_from_box(boxed).unwrap_unchecked()
     }
 
-}
-
-impl<T> SmallSliceBox<T> {
     /// Turns a SmallSliceBox into a box.
     ///
     /// This is a fast constant-time operation that needs no allocation.
     ///
     /// Not an associated function to not interfere with Deref
-    pub fn to_box(this: Self) -> Box<[T]> {
-        println!("to_box called");
+    pub fn to_box(this: Self) -> Box<T> {
         // SAFETY: We reconstruct using the inverse operations from before
         let ptr = core::ptr::slice_from_raw_parts(this.ptr.as_ptr(), this.size as usize) as *mut _;
         let res = unsafe { Box::from_raw(ptr) };
@@ -220,59 +220,86 @@ impl<T> SmallSliceBox<T> {
     }
 }
 
-impl<T> Drop for SmallSliceBox<T> {
+impl<T> Drop for SmallSliceBox<T>
+where
+    T: Pointee<Metadata = usize> + ?Sized,
+{
     fn drop(&mut self) {
-        let me = std::mem::replace(self, SmallSliceBox { ptr: NonNull::dangling(), size: 0});
+        let me = std::mem::replace(self, SmallSliceBox { ptr: NonNull::dangling(), len: 0, marker: PhantomData});
         core::mem::forget(self);
         let _drop_this_box = SmallSliceBox::to_box(me);
     }
 }
 
-impl<T> Deref for SmallSliceBox<T> {
-    type Target = [T];
+impl<T> Deref for SmallSliceBox<T>
+where
+    T: Pointee<Metadata = usize> + ?Sized,
+{
+    type Target = T;
     fn deref(&self) -> &Self::Target {
         // SAFETY: Correct by construction
-        unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), self.size as usize) }
+        let ptr = unsafe { ptr_meta::from_raw_parts(self.ptr.as_ptr(), self.len as usize) };
+        &*ptr
     }
 }
 
-impl<T> DerefMut for SmallSliceBox<T> {
+impl<T> DerefMut for SmallSliceBox<T>
+    where
+    T: Pointee<Metadata = usize> + ?Sized,
+{
     fn deref_mut(&mut self) -> &mut Self::Target {
         // SAFETY: Correct by construction
-        unsafe { core::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.size as usize) }
+        let ptr = unsafe { ptr_meta::from_raw_parts_mut(self.ptr.as_ptr(), self.len as usize) };
+        &mut *ptr
     }
 }
 
-impl<T> core::borrow::Borrow<[T]> for SmallSliceBox<T> {
-    fn borrow(&self) -> &[T] {
+impl<T> core::borrow::Borrow<T> for SmallSliceBox<T>
+where
+    T: Pointee<Metadata = usize> + ?Sized,
+{
+    fn borrow(&self) -> &T {
         &**self
     }
 }
 
-impl<T> core::borrow::BorrowMut<[T]> for SmallSliceBox<T> {
-    fn borrow_mut(&mut self) -> &mut [T] {
+impl<T> core::borrow::BorrowMut<T> for SmallSliceBox<T>
+where
+    T: Pointee<Metadata = usize> + ?Sized,
+{
+    fn borrow_mut(&mut self) -> &mut T {
         &mut **self
     }
 }
 
-impl<T> AsRef<[T]> for SmallSliceBox<T> {
-    fn as_ref(&self) -> &[T] {
+impl<T> AsRef<T> for SmallSliceBox<T>
+where
+    T: Pointee<Metadata = usize> + ?Sized,
+{
+    fn as_ref(&self) -> &T {
         &**self
     }
 }
 
 
-impl<T> AsMut<[T]> for SmallSliceBox<T> {
-    fn as_mut(&mut self) -> &mut [T] {
+impl<T> AsMut<T> for SmallSliceBox<T>
+where
+    T: Pointee<Metadata = usize> + ?Sized,
+{
+    fn as_mut(&mut self) -> &mut T {
         &mut **self
     }
 }
 
-impl<T> Unpin for SmallSliceBox<T> {}
+impl<T> Unpin for SmallSliceBox<T>
+where
+    T: Pointee<Metadata = usize> + ?Sized,
+{}
 
 impl<T> Clone for SmallSliceBox<T>
     where
-    T: Clone
+    T: Clone,
+    T: Pointee<Metadata = usize> + ?Sized,
 {
     fn clone(&self) -> Self {
         let slice = self.deref();
@@ -281,7 +308,10 @@ impl<T> Clone for SmallSliceBox<T>
     }
 }
 
-impl<T: core::fmt::Debug> core::fmt::Debug for SmallSliceBox<T> {
+impl<T: core::fmt::Debug> core::fmt::Debug for SmallSliceBox<T>
+where
+    T: Pointee<Metadata = usize> + ?Sized,
+{
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         core::fmt::Debug::fmt(&**self, f)
     }
@@ -295,7 +325,7 @@ impl<T: core::fmt::Debug> core::fmt::Debug for SmallSliceBox<T> {
 // #[rustc_layout(debug)]
 pub enum Thing{
     LocalString{bytes: [u8; 14], len: u8},
-    RemoteString{ptr: SmallSliceBox<u8>},
+    RemoteString{ptr: SmallSliceBox<str>},
 }
 
 // #[rustc_layout(debug)]
@@ -344,6 +374,54 @@ pub enum Thing{
 // //     }
 // // }
 
+
+
+// pub struct SmallSliceBoxResolver<T>(rkyv::boxed::BoxResolver<<[T] as ArchiveUnsized>::MetadataResolver>)
+// where
+//     Box<[T]>: Archive,
+//     [T]: ArchiveUnsized;
+
+// /// SmallSliceBox is archived into an ArchivedBox<[T]>, just like a normal box.
+// impl<T> Archive for SmallSliceBox<T>
+//     where
+//     Box<[T]>: Archive,
+//     [T]: ArchiveUnsized,
+// {
+//     type Archived = ArchivedBox<<[T] as ArchiveUnsized>::Archived>;
+//     type Resolver = SmallSliceBoxResolver<T>;
+
+//     #[inline]
+//     unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
+//         println!("Resolving {:?}", &self as *const _);
+//         rkyv::boxed::ArchivedBox::resolve_from_ref(self.as_ref(), pos, resolver.0, out)
+//     }
+// }
+
+// impl<S: rkyv::Fallible + ?Sized, T> Serialize<S> for SmallSliceBox<T>
+//     where
+//     Box<[T]>: Serialize<S>,
+//     [T]: SerializeUnsized<S>,
+// {
+//     #[inline]
+//     fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
+//         println!("Serializing {:?}", &self as *const _);
+//         let res = ArchivedBox::serialize_from_ref(self.as_ref(), serializer)?;
+//         Ok(SmallSliceBoxResolver(res))
+//     }
+// }
+
+// impl<T, D> Deserialize<SmallSliceBox<T>, D> for ArchivedBox<<[T] as ArchiveUnsized>::Archived>
+//     where
+//     [T]: ArchiveUnsized,
+//     <[T] as ArchiveUnsized>::Archived: rkyv::DeserializeUnsized<[T], D>,
+//     D: rkyv::Fallible + ?Sized,
+// {
+//     fn deserialize(&self, deserializer: &mut D) -> Result<SmallSliceBox<T>, D::Error> {
+//         println!("Deserializing {:?}", &self as *const _);
+//         let boxed: Box<[T]> = self.deserialize(deserializer)?;
+//         Ok(SmallSliceBox::from_box(boxed))
+//     }
+// }
 
 
 #[cfg(test)]
