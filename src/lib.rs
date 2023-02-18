@@ -1,4 +1,16 @@
 #![no_std]
+/// slimmer_box: A packed alternative to [`Box<T>`](alloc::boxed::Box) whose 'fat' pointer is 'slimmer'.
+///
+///
+/// - [`SlimmerBox<T>`]: the main type exposed by this crate. Detailed documentation can be found there.
+/// - [`CloneUnsized`]: a helper trait to also allow unsized types whose _contents_ are clone. (like [`[T]`](slice) and [`str`]) to be cloned around.
+/// 0 [`SlimmerPointee`]: a helper trait implemented for all sized and unsized types for which a 'fat' pointer might be made slimmer.
+///
+/// # Features
+///
+/// - "std". Enabled by default. Disable the default features to use the crate in no_std environments. (`slimmer_box` *does* require the `alloc` crate to be available.)
+/// - "rkyv". Enable support for the `rkyv` serialisation/deserialisation library.
+
 
 // Enable std in tests for easier debugging
 #[cfg(any(feature = "std", test))]
@@ -32,7 +44,7 @@ pub mod rkyv;
 //     OutOfLine(SlimmerBox<i32>),
 // }
 
-/// A packed alternative to `Box<T>` whose 'fat' pointer is 'slimmer'.
+/// A packed alternative to [`Box<T>`](alloc::boxed::Box) whose 'fat' pointer is 'slimmer'.
 ///
 /// A normal `Box<[T]>` is an owned 'fat pointer' that contains both the 'raw' pointer to memory
 /// as well as the size (as an usize) of the managed slice.
@@ -63,8 +75,8 @@ pub mod rkyv;
 /// SlimmerBox<T, u32> is the most common version, and therefore u32 is the default SlimmerMetadata to use.
 /// But it is possible to use another variant, if you are sure that your data will be even shorter.
 ///
-/// - SlimmerMetadata = `()` is used for sized types. In this case a SlimmerBox will only contain the normal pointer and be exactly 1 word size, just like a normal Box.
-/// - SlimmerMetadata = u64 would make SlimmerBox behave exactly like a normal Box on a 64-bit system.
+/// - SlimmerMetadata = [`()`](unit) is used for sized types. In this case a SlimmerBox will only contain the normal pointer and be exactly 1 word size, just like a normal [Box](alloc::boxed::Box).
+/// - SlimmerMetadata = [u64](u64) would make SlimmerBox behave exactly like a normal Box on a 64-bit system.
 ///
 /// | SlimmerMetadata | max DST length¹      | resulting size (32bit) | resulting size (64bit) | Notes                                                                           |
 /// |-----------------|----------------------|------------------------|------------------------|---------------------------------------------------------------------------------|
@@ -83,7 +95,7 @@ pub mod rkyv;
 /// # Rkyv
 ///
 /// rkyv's Archive, Serialize and Deserialize have been implemented for SlimmerBox.
-/// The serialized version of a `SlimmerBox<T>` is 'just' a normal `rkyv::ArchivedBox<[T]>`.
+/// The serialized version of a `SlimmerBox<T>` is 'just' a normal [`rkyv::ArchivedBox<[T]>`].
 /// This is a match made in heaven, since rkyv's relative pointers use only 32 bits for the pointer part _as well as_ the length part.
 /// As such, `sizeof(rkyv::Archived<SlimmerBox<T>>) == 8` bytes (!).
 /// (This is assuming rkyv's feature `size_32` is used which is the default.
@@ -98,7 +110,7 @@ pub mod rkyv;
 ///
 /// SlimmerBox works perfectly fine in `no_std` environments, as long as the `alloc` crate is available.
 ///
-/// (The only thing that is missing in no_std environments are implementations for SlimmerPointee of `std::ffi::OsStr` and `std::ffi::CStr`, neither of which exists when `std` is disabled.)
+/// (The only thing that is missing in no_std environments are implementations for [SlimmerPointee](SlimmerPointee) of `std::ffi::OsStr` and `std::ffi::CStr`, neither of which exists when `std` is disabled.)
 ///
 ///
 /// ## Examples

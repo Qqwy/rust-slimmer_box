@@ -13,7 +13,7 @@ where
     Box<T>: Archive,
     T: ArchiveUnsized;
 
-/// SlimmerBox is archived into an ArchivedBox<T>, just like a normal box.
+/// SlimmerBox is archived into an [`ArchivedBox<T>`], just like a normal box.
 impl<T, SlimmerMetadata> Archive for SlimmerBox<T, SlimmerMetadata>
 where
     T: ?Sized,
