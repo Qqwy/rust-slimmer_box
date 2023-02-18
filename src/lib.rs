@@ -11,7 +11,8 @@
 //! # Feature flags
 //!
 //! - `"std"`. Enabled by default. Disable the default features to use the crate in no_std environments. `slimmer_box` *does* require the `alloc` crate to be available.
-//! - `"rkyv"`. Enable support for the `rkyv` serialisation/deserialisation library.
+//! - `"rkyv"`. Enable support for the [rkyv](https://crates.io/crates/rkyv) zero-copy serialisation/deserialisation library, which is a very good match for this crate!
+//! - `"serde"`. Enable support for the [serde](https://crates.io/crates/serde) serialisation/deserialisation library.
 //!
 //!
 //! # MSRV
