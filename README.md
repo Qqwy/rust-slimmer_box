@@ -11,7 +11,9 @@
 <!-- [Rust 1.47]: https://blog.rust-lang.org/2020/10/08/Rust-1.47.html -->
 
 
-A SlimmerBox&lt;T> is a packed alternative to Box&lt;T> whose 'fat' pointer is 'slimmer'
+A [SlimmerBox&lt;T>](https://docs.rs/slimmer_box/0.5.1/slimmer_box/struct.SlimmerBox.html) is a packed alternative to Box&lt;T> whose 'fat' pointer is 'slimmer'
+
+[Documentation](https://docs.rs/slimmer_box/0.5.1/slimmer_box/)
 
 ## Rationale
 
@@ -44,8 +46,8 @@ this might make a difference.
 SlimmerBox<T, u32> is the most common version, and therefore u32 is the default SlimmerMetadata to use.
 But it is possible to use another variant, if you are sure that your data will be even shorter.
 
-- SlimmerMetadata = `()` is used for sized types. In this case a SlimmerBox will only contain the normal pointer and be exactly 1 word size, just like a normal Box.
-- SlimmerMetadata = u64 would make SlimmerBox behave exactly like a normal Box on a 64-bit system.
+- SlimmerMetadata = `()` is used for sized types. In this case a SlimmerBox will only contain the normal pointer and be exactly 1 word size, just like a normal Box containing a sized type.
+- SlimmerMetadata = u64 would make SlimmerBox behave exactly like a normal Box containing a dynamically-sized type on a 64-bit system.
 
 | SlimmerMetadata | max DST length¹      | resulting size (32bit) | resulting size (64bit) | Notes                                                                           |
 |-----------------|----------------------|------------------------|------------------------|---------------------------------------------------------------------------------|
