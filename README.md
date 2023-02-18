@@ -145,3 +145,7 @@ let slimmer_box = SlimmerBox::from_box(boxed);
 let again_boxed = SlimmerBox::into_box(slimmer_box);
 ```
 
+
+## MSRV
+
+The minimum supported Rust version of `slimmer_box` is 1.58.1.

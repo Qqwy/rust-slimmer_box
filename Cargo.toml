@@ -1,7 +1,14 @@
 [package]
 name = "slimmer_box"
-version = "0.1.0"
+version = "0.5.0"
 edition = "2021"
+license = "MIT"
+authors = ["Qqwy / Marten"]
+description = "A packed alternative to Box<T> whose 'fat' pointer is 'slimmer'"
+keywords = ["box", "pointers", "no_std", "alloc", "box", "cache"]
+categories = ["no-std", "memory-management"]
+readme = "README.md"
+repository = "https://github.com/qqwy/rust-slimmer_box"
 
 [dependencies]
 ptr_meta = { version = "0.2.0", default_features = false }
@@ -9,4 +16,6 @@ rkyv = { version = "0.7.39", features = [], optional = true }
 
 [features]
 std = []
-rkyv = [ "dep:rkyv" ]
+
+[package.metadata.docs.rs]
+features = ["rkyv"]

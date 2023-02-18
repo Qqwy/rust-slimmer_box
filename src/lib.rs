@@ -12,7 +12,10 @@
 //!
 //! - `"std"`. Enabled by default. Disable the default features to use the crate in no_std environments. `slimmer_box` *does* require the `alloc` crate to be available.
 //! - `"rkyv"`. Enable support for the `rkyv` serialisation/deserialisation library.
-
+//!
+//!
+//! # MSRV
+//! The minimum supported Rust version of `slimmer_box` is 1.58.1.
 
 // Enable std in tests for easier debugging
 #[cfg(any(feature = "std", test))]
