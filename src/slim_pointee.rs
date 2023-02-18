@@ -33,7 +33,7 @@ where
 {
 }
 
-/// Trivial implementation for signed types, as they do not have any metadata.
+/// Trivial blanket implementation for sized types, as they do not have any metadata.
 unsafe impl<T: Sized> SlimmerPointee<()> for T {}
 
 /// Implementation that will behave identical to `Box<[T]>` on any architecture

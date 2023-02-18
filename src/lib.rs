@@ -1,15 +1,17 @@
 #![no_std]
-/// slimmer_box: A packed alternative to [`Box<T>`](alloc::boxed::Box) whose 'fat' pointer is 'slimmer'.
-///
-///
-/// - [`SlimmerBox<T>`]: the main type exposed by this crate. Detailed documentation can be found there.
-/// - [`CloneUnsized`]: a helper trait to also allow unsized types whose _contents_ are clone. (like [`[T]`](slice) and [`str`]) to be cloned around.
-/// 0 [`SlimmerPointee`]: a helper trait implemented for all sized and unsized types for which a 'fat' pointer might be made slimmer.
-///
-/// # Features
-///
-/// - "std". Enabled by default. Disable the default features to use the crate in no_std environments. (`slimmer_box` *does* require the `alloc` crate to be available.)
-/// - "rkyv". Enable support for the `rkyv` serialisation/deserialisation library.
+//! slimmer_box: A packed alternative to [`Box<T>`](alloc::boxed::Box) whose 'fat' pointer is 'slimmer'.
+//!
+//!
+//! [`SlimmerBox<T>`] is the main type exposed by this crate. Detailed documentation can be found there.
+//!
+//! Other, less frequently useful types:
+//! - [`CloneUnsized`]: a helper trait to also allow unsized types whose _contents_ are clone. (like [`[T]`](slice) and [`str`]) to be cloned around.
+//! - [`SlimmerPointee`]: a helper trait implemented for all sized and unsized types for which a 'fat' pointer might be made slimmer.
+//!
+//! # Feature flags
+//!
+//! - `"std"`. Enabled by default. Disable the default features to use the crate in no_std environments. `slimmer_box` *does* require the `alloc` crate to be available.
+//! - `"rkyv"`. Enable support for the `rkyv` serialisation/deserialisation library.
 
 
 // Enable std in tests for easier debugging
@@ -34,15 +36,6 @@ pub use crate::slim_pointee::SlimmerPointee;
 
 #[cfg(feature = "rkyv")]
 pub mod rkyv;
-
-// #[derive(Archive, Serialize, Deserialize)]
-// // #[rustc_layout(debug)]
-// // #[archive_attr(rustc_layout(debug))]
-// pub enum Foo {
-//     First(bool),
-//     Second(u32),
-//     OutOfLine(SlimmerBox<i32>),
-// }
 
 /// A packed alternative to [`Box<T>`](alloc::boxed::Box) whose 'fat' pointer is 'slimmer'.
 ///
@@ -526,22 +519,6 @@ where
     }
 }
 
-// #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
-// #[archive_attr(derive(CheckBytes))]
-// #[archive_attr(derive(Debug))]
-// #[archive(compare(PartialEq, PartialOrd))]
-// #[archive_attr(rustc_layout(debug))]
-// #[rustc_layout(debug)]
-pub enum Thing {
-    LocalString { bytes: [u8; 14], len: u8 },
-    RemoteString { ptr: SlimmerBox<str> },
-}
-
-// #[rustc_layout(debug)]
-// #[repr(transparent)]
-// pub struct Foo {
-//     ptr: Box<str>,
-// }
 
 #[cfg(test)]
 mod tests {
