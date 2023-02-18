@@ -13,9 +13,17 @@ repository = "https://github.com/qqwy/rust-slimmer_box"
 [dependencies]
 ptr_meta = { version = "0.2.0", default_features = false }
 rkyv = { version = "0.7.39", features = [], optional = true }
+serde = { version = "1.0.152", optional = true }
 
 [features]
-std = []
+std = ["ptr_meta/std"]
+# The following are listed as 'implicit features' to allow targeting Rust < 1.60:
+# rkyv
+# serde
 
 [package.metadata.docs.rs]
-features = ["rkyv"]
+features = ["rkyv", "serde"]
+
+[dev-dependencies]
+serde_test = "1.0"
+

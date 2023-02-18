@@ -40,6 +40,9 @@ pub use crate::slim_pointee::SlimmerPointee;
 #[cfg(feature = "rkyv")]
 pub mod rkyv;
 
+#[cfg(feature = "serde")]
+pub mod serde;
+
 /// A packed alternative to [`Box<T>`](alloc::boxed::Box) whose 'fat' pointer is 'slimmer'.
 ///
 /// A normal `Box<[T]>` is an owned 'fat pointer' that contains both the 'raw' pointer to memory
@@ -521,6 +524,82 @@ where
         core::fmt::Debug::fmt(&**self, f)
     }
 }
+
+
+impl<T: PartialEq, SlimmerMetadata> PartialEq for SlimmerBox<T, SlimmerMetadata>
+where
+    T: ?Sized,
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
+{
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        PartialEq::eq(&**self, &**other)
+    }
+    #[inline]
+    fn ne(&self, other: &Self) -> bool {
+        PartialEq::ne(&**self, &**other)
+    }
+}
+
+impl<T: PartialOrd, SlimmerMetadata> PartialOrd for SlimmerBox<T, SlimmerMetadata>
+where
+    T: ?Sized,
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
+{
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        PartialOrd::partial_cmp(&**self, &**other)
+    }
+    #[inline]
+    fn lt(&self, other: &Self) -> bool {
+        PartialOrd::lt(&**self, &**other)
+    }
+    #[inline]
+    fn le(&self, other: &Self) -> bool {
+        PartialOrd::le(&**self, &**other)
+    }
+    #[inline]
+    fn ge(&self, other: &Self) -> bool {
+        PartialOrd::ge(&**self, &**other)
+    }
+    #[inline]
+    fn gt(&self, other: &Self) -> bool {
+        PartialOrd::gt(&**self, &**other)
+    }
+}
+
+
+impl<T: Ord, SlimmerMetadata> Ord for SlimmerBox<T, SlimmerMetadata>
+    where
+        T: ?Sized,
+        T: SlimmerPointee<SlimmerMetadata>,
+        SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
+    {
+    #[inline]
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        Ord::cmp(&**self, &**other)
+    }
+}
+impl<T: Eq, SlimmerMetadata> Eq for SlimmerBox<T, SlimmerMetadata>
+where
+    T: ?Sized,
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
+{}
+
+impl<T: core::hash::Hash, SlimmerMetadata> core::hash::Hash for SlimmerBox<T, SlimmerMetadata>
+where
+    T: ?Sized,
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
+{
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        (**self).hash(state);
+    }
+}
+
 
 
 #[cfg(test)]
