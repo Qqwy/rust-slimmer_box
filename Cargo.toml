@@ -11,4 +11,5 @@ ptr_meta = { version = "0.2.0", default_features = false }
 rkyv = { version = "0.7.39", features = [], optional = true }
 
 [features]
+std = []
 rkyv = [ "dep:rkyv" ]

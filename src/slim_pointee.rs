@@ -65,3 +65,33 @@ unsafe impl SlimmerPointee<u32> for str {}
 
 /// Store at most 18446744073709551615 bytes == 16 EiB
 unsafe impl SlimmerPointee<u64> for str {}
+
+#[cfg(feature = "std")]
+unsafe impl SlimmerPointee<usize> for ::std::ffi::CStr {}
+
+#[cfg(feature = "std")]
+unsafe impl SlimmerPointee<usize> for ::std::ffi::OsStr {}
+
+#[cfg(feature = "std")]
+unsafe impl SlimmerPointee<u8> for ::std::ffi::CStr {}
+
+#[cfg(feature = "std")]
+unsafe impl SlimmerPointee<u8> for ::std::ffi::OsStr {}
+
+#[cfg(feature = "std")]
+unsafe impl SlimmerPointee<u16> for ::std::ffi::CStr {}
+
+#[cfg(feature = "std")]
+unsafe impl SlimmerPointee<u16> for ::std::ffi::OsStr {}
+
+#[cfg(feature = "std")]
+unsafe impl SlimmerPointee<u32> for ::std::ffi::CStr {}
+
+#[cfg(feature = "std")]
+unsafe impl SlimmerPointee<u32> for ::std::ffi::OsStr {}
+
+#[cfg(feature = "std")]
+unsafe impl SlimmerPointee<u64> for ::std::ffi::CStr {}
+
+#[cfg(feature = "std")]
+unsafe impl SlimmerPointee<u64> for ::std::ffi::OsStr {}

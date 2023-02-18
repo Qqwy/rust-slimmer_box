@@ -1,7 +1,7 @@
 #![no_std]
 
 // Enable std in tests for easier debugging
-#[cfg(test)]
+#[cfg(any(feature = "std", test))]
 #[macro_use]
 extern crate std;
 
@@ -20,7 +20,6 @@ pub mod slim_pointee;
 pub use crate::clone_unsized::CloneUnsized;
 pub use crate::slim_pointee::SlimmerPointee;
 
-// TODO conditionally expose
 #[cfg(feature = "rkyv")]
 pub mod rkyv;
 
@@ -98,6 +97,8 @@ pub mod rkyv;
 /// # `no_std` support
 ///
 /// SlimmerBox works perfectly fine in `no_std` environments, as long as the `alloc` crate is available.
+///
+/// (The only thing that is missing in no_std environments are implementations for SlimmerPointee of `std::ffi::OsStr` and `std::ffi::CStr`, neither of which exists when `std` is disabled.)
 #[repr(packed)]
 pub struct SlimmerBox<T, SlimmerMetadata = u32>
 where
