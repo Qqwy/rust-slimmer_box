@@ -72,6 +72,46 @@ impl std::fmt::Display for SliceTooLargeError {
     }
 }
 
+/// Generalization of Clone which supports dynamically-sized or otherwise unsized types.
+///
+/// Implemented for:
+/// - [T] as long as T itself is Clone.
+/// - `str`.
+/// - Any type that itself implements Clone.
+///
+/// This trait can easily be implemented for any other dynamically-sized type as well.
+pub trait CloneUnsized {
+
+    /// Mutates `self` to become a clone of `source`.
+    ///
+    /// Signature closely matches `std::slice::clone_from_slice()` on purpose.
+    fn unsized_clone_from(&mut self, source: &Self);
+}
+
+impl<T> CloneUnsized for [T]
+where
+T: Clone
+{
+    fn unsized_clone_from(&mut self, source: &Self) {
+        self.clone_from_slice(source)
+    }
+}
+
+impl CloneUnsized for str
+{
+    fn unsized_clone_from(&mut self, source: &Self) {
+        // SAFETY: Cloning valid UTF8 bytes will result in valid UTF8 bytes
+        unsafe { self.as_bytes_mut() }.clone_from_slice(source.as_bytes())
+    }
+}
+
+/// Blanket implementation for any sized T that uses the normal Clone.
+impl<T: Clone> CloneUnsized for T {
+    fn unsized_clone_from(&mut self, source: &Self) {
+        *self = source.clone();
+    }
+}
+
 impl<T> SmallSliceBox<T>
 where
     T: Pointee<Metadata = usize> + ?Sized,
@@ -85,7 +125,7 @@ where
     /// Panics if the slice's length cannot fit in a u32.
     pub fn new(slice: &T) -> Self
     where
-        T: Clone,
+        T: CloneUnsized,
     {
         Self::try_new(slice).unwrap()
     }
@@ -99,7 +139,7 @@ where
     /// The caller must ensure that `slice`'s length can fit in a u32.
     pub unsafe fn new_unchecked(slice: &T) -> Self
     where
-        T: Clone,
+        T: CloneUnsized,
     {
         Self::try_new(slice).unwrap_unchecked()
     }
@@ -107,12 +147,15 @@ where
     /// Variant of `new` which will return an error if the slice is too long instead of panicing.
     pub fn try_new(slice: &T) -> Result<Self, SliceTooLargeError>
     where
-        T: Clone,
+        T: CloneUnsized,
     {
+        let meta = ptr_meta::metadata(slice);
         let layout = std::alloc::Layout::for_value(slice);
-        let target_ptr = unsafe { std::alloc::alloc(layout) } as *mut T;
-        // SAFETY: We write into newly allocated space
-        unsafe { target_ptr.write(slice.clone()) };
+        let alloc_ptr = unsafe { std::alloc::alloc(layout) } as *mut ();
+        let target_ptr: *mut T = ptr_meta::from_raw_parts_mut(alloc_ptr, meta);
+        // SAFETY: We obtain a reference to newly allocated space
+        // This is not yet a valid T, but we only use it to immediately write into
+        unsafe { &mut *target_ptr }.unsized_clone_from(slice);
 
         // SAFETY: We pass a newly allocated, filled, ptr
         unsafe { Self::try_from_raw(target_ptr) }
@@ -120,7 +163,6 @@ where
 
     /// Variant of `from_box` which will return an error if the slice is too long instead of panicing.
     pub fn try_from_box(boxed: Box<T>) -> Result<Self, SliceTooLargeError> {
-        let layout = std::alloc::Layout::for_value(&*boxed);
         let fat_ptr = Box::into_raw(boxed);
         // SAFETY: Box ensures fat_ptr is non-null
         unsafe { Self::try_from_raw(fat_ptr) }
@@ -414,15 +456,26 @@ pub enum Thing{
 mod tests {
     use crate::SmallSliceBox;
 
-
     #[test]
-    fn rkyv() {
-        let boxed = SmallSliceBox::new(&[1,2,3,4].as_slice());
-        println!("{:?}", &boxed);
-        let bytes = rkyv::to_bytes::<_, 64>(&boxed).unwrap();
-        println!("{:?}", bytes);
-        let deserialized: SmallSliceBox<i32> = unsafe { rkyv::from_bytes_unchecked(&bytes) }.unwrap();
-        println!("{:?}", deserialized);
-
+    fn roundtrip() {
+        let slice: [u64; 4] = [1,2,3,4];
+        let boxed = SmallSliceBox::new(slice.as_slice());
+        println!("small: {}", core::mem::size_of_val(&boxed));
+        println!("small: {:?}", boxed);
+        let result = SmallSliceBox::into_box(boxed);
+        println!("box: {}", core::mem::size_of_val(&result));
+        println!("box: {:?}", result);
     }
+
+
+    // #[test]
+    // fn rkyv() {
+    //     let boxed = SmallSliceBox::new(&[1,2,3,4].as_slice());
+    //     println!("{:?}", &boxed);
+    //     let bytes = rkyv::to_bytes::<_, 64>(&boxed).unwrap();
+    //     println!("{:?}", bytes);
+    //     let deserialized: SmallSliceBox<i32> = unsafe { rkyv::from_bytes_unchecked(&bytes) }.unwrap();
+    //     println!("{:?}", deserialized);
+
+    // }
 }
