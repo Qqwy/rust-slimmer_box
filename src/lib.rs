@@ -1,6 +1,6 @@
 #![feature(rustc_attrs)]
 use std::{mem::ManuallyDrop, ptr::NonNull, marker::PhantomData, ops::{Deref, DerefMut}};
-use ptr_meta::Pointee;
+use ptr_meta::{Pointee, PtrExt};
 
 use bytecheck::CheckBytes;
 use rkyv::{Archive, Deserialize, Serialize, Archived, Resolver, ArchiveUnsized, boxed::ArchivedBox, SerializeUnsized};
@@ -110,82 +110,34 @@ where
         T: Clone,
     {
         let layout = std::alloc::Layout::for_value(slice);
-        let fat_source_ptr = &slice as *mut _;
-        let (source_ptr, len) = fat_source_ptr.to_raw_parts();
-        let small_len = len.try_into().map_err(|_| SliceTooLargeError{len})?;
-
-        let target_ptr = unsafe { std::alloc::alloc(layout) };
+        let target_ptr = unsafe { std::alloc::alloc(layout) } as *mut T;
+        // SAFETY: We write into newly allocated space
         unsafe { target_ptr.write(slice.clone()) };
 
-        Ok(Self {
-            ptr: target_ptr,
-            len: small_len,
-            marker: PhantomData,
-        })
-    }
-
-    /// Optimization of `new` for types implementing `Copy`
-    ///
-    /// Does not need to work with an intermediate vec,
-    /// and creating a copy from the slice is much faster.
-    ///
-    /// Panics if the slice's length cannot fit in a u32.
-    pub fn new_from_copy(slice: &T) -> Self
-    where
-        T: Copy,
-    {
-        Self::try_new_from_copy(slice).unwrap()
-    }
-
-    /// Variant of `new_from_copy` which will return an error if the slice is too long instead of panicing.
-    pub fn try_new_from_copy(slice: &T) -> Result<Self, <u32 as TryFrom<usize>>::Error>
-    where
-        T: Copy,
-    {
-        let layout = std::alloc::Layout::for_value(slice);
-        let fat_source_ptr = &slice as *mut _;
-        let (source_ptr, len) = fat_source_ptr.to_raw_parts();
-        let small_len = len.try_into().map_err(|_| SliceTooLargeError{len})?;
-
-        let target_ptr = unsafe { std::alloc::alloc(layout) };
-        // SAFETY:
-        // - We copy into newly allocated memory. As such it is guaranteed not to overlap
-        // - T is Copy
-        unsafe { core::ptr::copy_nonoverlapping(source_ptr, target_ptr, len) };
-
-        Ok(Self {
-            ptr: target_ptr,
-            len: small_len,
-            marker: PhantomData,
-        })
-    }
-
-    /// Optimization of `new_unchecked` for types implementing `Copy`.
-    ///
-    /// # Safety
-    /// The caller must ensure that `slice`'s length can fit in a u32.
-    pub unsafe fn new_from_copy_unchecked(slice: &T) -> Self
-    where
-        T: Copy,
-    {
-        Self::try_new_from_copy(slice).unwrap_unchecked()
+        // SAFETY: We pass a newly allocated, filled, ptr
+        unsafe { Self::try_from_raw_fat_ptr(target_ptr) }
     }
 
     /// Variant of `from_box` which will return an error if the slice is too long instead of panicing.
     pub fn try_from_box(boxed: Box<T>) -> Result<Self, SliceTooLargeError> {
         let layout = std::alloc::Layout::for_value(&*boxed);
         let fat_ptr = Box::into_raw(boxed);
-        let (thin_ptr, len) = fat_ptr.to_raw_parts();
+        // SAFETY: Box ensures fat_ptr is non-null
+        unsafe { Self::try_from_raw_fat_ptr(fat_ptr) }
+    }
+
+    // Caller must ensure *T is valid, and non-null
+    unsafe fn try_from_raw_fat_ptr(target_ptr: *mut T) -> Result<Self, SliceTooLargeError> {
+        let (thin_ptr, len) = target_ptr.to_raw_parts();
         let small_len = len.try_into().map_err(|_| SliceTooLargeError{len})?;
 
         // SAFETY: Box ensures its ptr is never null.
-        let ptr = unsafe { core::ptr::NonNull::new_unchecked(thin_ptr) };
-        let res = SmallSliceBox {
+        let ptr = unsafe { core::ptr::NonNull::new_unchecked(thin_ptr as *mut ()) };
+        Ok(Self {
             ptr,
-            len,
+            len: small_len,
             marker: PhantomData,
-        };
-        Ok(res)
+        })
     }
 
     /// Turns a Box into a SmallSliceBox.
@@ -431,7 +383,7 @@ mod tests {
 
     #[test]
     fn rkyv() {
-        let boxed = SmallSliceBox::new(&[1,2,3,4]);
+        let boxed = SmallSliceBox::new(&[1,2,3,4].as_slice());
         println!("{:?}", &boxed);
         let bytes = rkyv::to_bytes::<_, 64>(&boxed).unwrap();
         println!("{:?}", bytes);
