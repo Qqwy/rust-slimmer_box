@@ -39,7 +39,7 @@ unsafe impl<T: Sized> SlimmerPointee<()> for T {}
 /// Implementation that will behave identical to Box<[T]> on any architecture
 unsafe impl<T> SlimmerPointee<usize> for [T] {}
 
-/// Store at most 15 elements
+/// Store at most 255 elements
 unsafe impl<T> SlimmerPointee<u8> for [T] {}
 
 /// Store at most 65535 elements

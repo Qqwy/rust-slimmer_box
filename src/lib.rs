@@ -69,7 +69,7 @@ pub mod rkyv;
 /// | SlimmerMetadata | max DST length¹      | resulting size (32bit) | resulting size (64bit) | Notes                                                                           |
 /// |-----------------|----------------------|------------------------|------------------------|---------------------------------------------------------------------------------|
 /// | ()              | -                    | 4 bytes                | 8 bytes                | Used for normal sized types. Identical in size to a normal Box<T> in this case. |
-/// | u8              | 15                   | 5 bytes                | 9 bytes                |                                                                                 |
+/// | u8              | 255                  | 5 bytes                | 9 bytes                |                                                                                 |
 /// | u16             | 65535                | 6 bytes                | 10 bytes               | Identical to Box<DST> on 16-bit systems                                         |
 /// | u32             | 4294967295           | 8 bytes (2 words)      | 12 bytes               | Identical to Box<DST> on 32-bit systems                                         |
 /// | u64             | 18446744073709551615 | -²                     | 16 bytes (2 words)     | Identical to Box<DST> on 64-bit systems                                         |
@@ -99,6 +99,72 @@ pub mod rkyv;
 /// SlimmerBox works perfectly fine in `no_std` environments, as long as the `alloc` crate is available.
 ///
 /// (The only thing that is missing in no_std environments are implementations for SlimmerPointee of `std::ffi::OsStr` and `std::ffi::CStr`, neither of which exists when `std` is disabled.)
+///
+///
+/// ## Examples
+/// _(Below examples assume a 64-bit system)_
+///
+/// Smaller than a normal Box for dynamically-sized types like slices or strings:
+///
+/// ```rust
+/// use slimmer_box::SlimmerBox;
+///
+/// let array: [u64; 4] = [1, 2, 3, 4];
+///
+/// let boxed_slice: Box<[u64]> = Box::from(&array[..]);
+/// assert_eq!(core::mem::size_of_val(&boxed_slice), 16);
+///
+/// let slimmer_boxed_slice: SlimmerBox<[u64]> = SlimmerBox::new(&array[..]);
+/// assert_eq!(core::mem::size_of_val(&slimmer_boxed_slice), 12);
+/// ```
+///
+/// Just like normal Box for normal, Sized types:
+/// ```rust
+/// use slimmer_box::SlimmerBox;
+///
+/// let int = 42;
+///
+/// let boxed_int = Box::new(&int);
+/// assert_eq!(core::mem::size_of_val(&boxed_int), 8);
+///
+/// let slimmer_boxed_int: SlimmerBox<u64, ()> = SlimmerBox::new(&int);
+/// assert_eq!(core::mem::size_of_val(&slimmer_boxed_int), 8);
+///
+/// ```
+///
+/// You can configure how much space you want to use for the length of a dynamically-sized slice or str:
+///
+/// ```rust
+/// use slimmer_box::SlimmerBox;
+///
+/// let array: [u64; 4] = [1, 2, 3, 4];
+/// // Holds at most 255 elements:
+/// let tiny: SlimmerBox<[u64], u8>  = SlimmerBox::new(&array);
+/// assert_eq!(core::mem::size_of_val(&tiny), 9);
+///
+/// // Holds at most 65535 elements or a str of 64kb:
+/// let small: SlimmerBox<[u64], u16>  = SlimmerBox::new(&array);
+/// assert_eq!(core::mem::size_of_val(&small), 10);
+///
+/// // Holds at most 4294967295 elements or a str of 4GB:
+/// let medium: SlimmerBox<[u64], u32>  = SlimmerBox::new(&array);
+/// assert_eq!(core::mem::size_of_val(&medium), 12);
+///
+/// // Holds at most 18446744073709551615 elements, or a str of 16EiB:
+/// let large: SlimmerBox<[u64], u64>  = SlimmerBox::new(&array); // <- Indistinguishable from a normal Box
+/// assert_eq!(core::mem::size_of_val(&large), 16);
+/// ```
+///
+/// You can turn a Box into a SlimmerBox and vice-versa:
+/// ```rust
+/// use slimmer_box::SlimmerBox;
+///
+/// let message = "hello, world!";
+/// let boxed = Box::new(message);
+/// let slimmer_box = SlimmerBox::from_box(boxed);
+/// let again_boxed = SlimmerBox::into_box(slimmer_box);
+/// ```
+///
 #[repr(packed)]
 pub struct SlimmerBox<T, SlimmerMetadata = u32>
 where
