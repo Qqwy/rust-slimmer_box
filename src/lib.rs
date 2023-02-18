@@ -67,8 +67,8 @@ where
 #[derive(Debug)]
 pub struct SliceTooLargeError{len: usize}
 impl std::fmt::Display for SliceTooLargeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) {
-        write!(f, "Pointed-to slice len {} was too large to fit in a SmallSliceBox (which can fit slices at most 2^32 elements long)", self.len);
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "Pointed-to slice len {} was too large to fit in a SmallSliceBox (which can fit slices at most 2^32 elements long)", self.len)
     }
 }
 
@@ -115,7 +115,7 @@ where
         unsafe { target_ptr.write(slice.clone()) };
 
         // SAFETY: We pass a newly allocated, filled, ptr
-        unsafe { Self::try_from_raw_fat_ptr(target_ptr) }
+        unsafe { Self::try_from_raw(target_ptr) }
     }
 
     /// Variant of `from_box` which will return an error if the slice is too long instead of panicing.
@@ -123,11 +123,27 @@ where
         let layout = std::alloc::Layout::for_value(&*boxed);
         let fat_ptr = Box::into_raw(boxed);
         // SAFETY: Box ensures fat_ptr is non-null
-        unsafe { Self::try_from_raw_fat_ptr(fat_ptr) }
+        unsafe { Self::try_from_raw(fat_ptr) }
     }
 
-    // Caller must ensure *T is valid, and non-null
-    unsafe fn try_from_raw_fat_ptr(target_ptr: *mut T) -> Result<Self, SliceTooLargeError> {
+    /// Builds a new SmallSliceBox from a raw mutable pointer
+    ///
+    ///
+    /// Panics if the slice's length cannot fit in a u32.
+    ///
+    /// # Safety
+    /// Caller must ensure *T is valid, and non-null
+    ///
+    /// Furthermore, similar caveats apply as with Box::from_raw.
+    pub unsafe fn from_raw(target_ptr: *mut T) -> Self {
+        Self::try_from_raw(target_ptr).unwrap()
+    }
+
+    /// Builds a new SmallSliceBox from a raw mutable pointer
+    ///
+
+    /// Variant of `from_box` which will return an error if the slice is too long instead of panicing.
+    pub unsafe fn try_from_raw(target_ptr: *mut T) -> Result<Self, SliceTooLargeError> {
         let (thin_ptr, len) = target_ptr.to_raw_parts();
         let small_len = len.try_into().map_err(|_| SliceTooLargeError{len})?;
 
@@ -162,13 +178,31 @@ where
     /// This is a fast constant-time operation that needs no allocation.
     ///
     /// Not an associated function to not interfere with Deref
-    pub fn to_box(this: Self) -> Box<T> {
-        // SAFETY: We reconstruct using the inverse operations from before
-        let ptr = core::ptr::slice_from_raw_parts(this.ptr.as_ptr(), this.size as usize) as *mut _;
-        let res = unsafe { Box::from_raw(ptr) };
-        // Do not drop ourselves; the pointer is now managed by the box:
+    pub fn into_box(this: Self) -> Box<T> {
+        let ptr = Self::into_raw(this);
+        // SAFETY: We reconstruct using the inverse operations from construction
+        unsafe { Box::from_raw(ptr) }
+    }
+
+    /// Obtains a raw read-only pointer view of the contents of this SmallSliceBox.
+    ///
+    /// The resulting pointer is guaranteed to be a valid instance of T and non-null.
+    fn to_ptr(this: &Self) -> *const T {
+        let ptr = ptr_meta::from_raw_parts(this.ptr.as_ptr(), this.len as usize);
+        ptr
+    }
+
+    /// Turns the SmallSliceBox into a raw pointer
+    ///
+    /// The resulting pointer is guaranteed to be a valid instance of T and non-null.
+    ///
+    /// Calling this function is safe, but most operations on the result are not.
+    /// Similar caveats apply as to Box::into_raw.
+    fn into_raw(this: Self) -> *mut T {
+        let ptr = ptr_meta::from_raw_parts_mut(this.ptr.as_ptr(), this.len as usize);
+        // Make sure the pointer remains valid; Caller is now responsible for managing the memory:
         core::mem::forget(this);
-        res
+        ptr
     }
 }
 
@@ -179,7 +213,7 @@ where
     fn drop(&mut self) {
         let me = std::mem::replace(self, SmallSliceBox { ptr: NonNull::dangling(), len: 0, marker: PhantomData});
         core::mem::forget(self);
-        let _drop_this_box = SmallSliceBox::to_box(me);
+        let _drop_this_box = SmallSliceBox::into_box(me);
     }
 }
 
@@ -191,7 +225,7 @@ where
     fn deref(&self) -> &Self::Target {
         // SAFETY: Correct by construction
         let ptr = unsafe { ptr_meta::from_raw_parts(self.ptr.as_ptr(), self.len as usize) };
-        &*ptr
+        unsafe { &*ptr }
     }
 }
 
@@ -202,7 +236,7 @@ impl<T> DerefMut for SmallSliceBox<T>
     fn deref_mut(&mut self) -> &mut Self::Target {
         // SAFETY: Correct by construction
         let ptr = unsafe { ptr_meta::from_raw_parts_mut(self.ptr.as_ptr(), self.len as usize) };
-        &mut *ptr
+        unsafe { &mut  *ptr }
     }
 }
 
