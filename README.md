@@ -6,7 +6,7 @@
 [Latest Version]: https://img.shields.io/crates/v/slimmer_box.svg
 [crates.io]: https://crates.io/crates/slimmer_box
 [License]: https://img.shields.io/badge/license-MIT-blue.svg
-[license path]: https://github.com/djkoloski/slimmer_box/blob/main/LICENSE
+[license path]: https://github.com/qqwy/rust-slimmer_box/blob/main/LICENSE
 [requires: rustc 1.47+]: https://img.shields.io/badge/rustc-1.47+-lightgray.svg
 <!-- [Rust 1.47]: https://blog.rust-lang.org/2020/10/08/Rust-1.47.html -->
 
