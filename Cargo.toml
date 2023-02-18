@@ -16,6 +16,7 @@ rkyv = { version = "0.7.39", features = [], optional = true }
 serde = { version = "1.0.152", optional = true }
 
 [features]
+default = [ "std", "serde"]
 std = ["ptr_meta/std"]
 # The following are listed as 'implicit features' to allow targeting Rust < 1.60:
 # rkyv
