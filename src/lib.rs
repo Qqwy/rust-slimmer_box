@@ -274,12 +274,19 @@ where
         T: CloneUnsized,
     {
         let meta = ptr_meta::metadata(value);
-        let layout = core::alloc::Layout::for_value(value);
-        let alloc_ptr = unsafe { alloc::alloc::alloc(layout) } as *mut ();
-        let target_ptr: *mut T = ptr_meta::from_raw_parts_mut(alloc_ptr, meta);
-        // SAFETY: We obtain a reference to newly allocated space
-        // This is not yet a valid T, but we only use it to immediately write into
-        unsafe { &mut *target_ptr }.unsized_clone_from(value);
+        let target_ptr = if core::mem::size_of_val(value) > 0 {
+            // Normally-sized type:
+            let layout = core::alloc::Layout::for_value(value);
+            let alloc_ptr = unsafe { alloc::alloc::alloc(layout) } as *mut ();
+            let target_ptr: *mut T = ptr_meta::from_raw_parts_mut(alloc_ptr, meta);
+            // SAFETY: We obtain a reference to newly allocated space
+            // This is not yet a valid T, but we only use it to immediately write into
+            unsafe { &mut *target_ptr }.unsized_clone_from(value);
+            target_ptr
+        } else {
+            // ZST, no allocation needed nor desired
+            core::ptr::addr_of!(*value) as *mut T
+        };
 
         // SAFETY: We pass a newly allocated, filled, ptr
         unsafe { Self::try_from_raw(target_ptr) }
@@ -628,5 +635,12 @@ mod tests {
         println!("       box (slice): {}", core::mem::size_of_val(&result));
         println!("       box (slice): {result:?}");
         assert_eq!(core::mem::size_of_val(&result), 16);
+    }
+
+    #[test]
+    fn zst() {
+        let boxed_unit = SlimmerBox::new(&());
+        println!("{:?}", boxed_unit);
+        let unit2 = *SlimmerBox::into_box(boxed_unit).clone();
     }
 }
