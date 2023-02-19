@@ -68,7 +68,57 @@ pub mod serde;
 /// The resulting structure will then still only take up 16 bytes.
 ///
 /// In situations where you are trying to optimize for memory usage, cache locality, etc,
-/// this might make a difference.
+/// this might make a difference:
+///
+/// ### Motivating Example
+/// 
+/// The following 'small str optimization' enum still only takes up two words,
+/// just like a normal `&str` would:
+/// 
+/// ```rust
+///     use slimmer_box::SlimmerBox;
+/// pub enum CompactStr {
+///     Small{buffer: [u8; 14], len: u8}, // <- Or, using the `modular_bitfield` crate, this could even be { buffer: [u8; 15], len: u4} !
+///     Large{ptr: SlimmerBox<str>},
+/// }
+/// 
+/// impl From<&str> for CompactStr {
+///     fn from(val: &str) -> CompactStr {
+///         if val.len() < 14 {
+///             let len = val.len() as u8;
+///             let mut buffer = [0u8; 14];
+///             buffer[0..val.len()].copy_from_slice(val.as_bytes());
+///             CompactStr::Small{ buffer, len }
+///         } else {
+///             CompactStr::Large{ ptr: SlimmerBox::new(val) }
+///         }
+///     }
+/// }
+/// 
+/// let compact_str: CompactStr = "hello world".into();
+/// assert_eq!(core::mem::size_of_val(&compact_str), 16);
+/// // An Option<CompactStr> also only takes up two words:
+/// assert_eq!(core::mem::size_of_val(&Some(compact_str)), 16);
+/// ```
+///
+/// _(A full version of this example including Debug, Display and Deref traits can be found [in this test](TODO))_
+///
+///
+/// The following immutable AST still only takes up two words. Even `Option<AST>` is only two words:
+/// ```rust
+/// use slimmer_box::SlimmerBox;
+/// pub enum AST {
+///     Bool(bool),
+///     Int(i64),
+///     Float(f64),
+///     Str(SlimmerBox<str>),
+///     Bytes(SlimmerBox<[u8]>),
+///     List(SlimmerBox<[AST]>),
+///     // 2^32 - 7 other variants could be added and the size would still stay the same :-)
+/// }
+/// assert_eq!(core::mem::size_of::<AST>(), 16);
+/// assert_eq!(core::mem::size_of::<Option<AST>>(), 16);
+/// ```
 ///
 /// # Different sizes
 ///
@@ -275,7 +325,6 @@ where
     {
         let meta = ptr_meta::metadata(value);
         let target_ptr = if core::mem::size_of_val(value) > 0 {
-            println!("Normal type");
             // Normally-sized type (or DST with non-empty size):
             let layout = core::alloc::Layout::for_value(value);
             let alloc_ptr = unsafe { alloc::alloc::alloc(layout) } as *mut ();
@@ -651,5 +700,73 @@ mod tests {
         let boxed_slice: SlimmerBox<[u64]> = SlimmerBox::new(&[]);
         assert_eq!(core::mem::size_of_val(&boxed_slice), 12);
         println!("{:?}", boxed_slice);
+    }
+
+    #[test]
+    fn compact_str_example() {
+        pub enum CompactStr {
+            Small{buffer: [u8; 14], len: u8}, // <- Or, using the `modular_bitfield` crate, this could even be { buffer: [u8; 15], len: u4} !
+            Large{ptr: SlimmerBox<str>},
+        }
+
+        impl From<&str> for CompactStr {
+            fn from(val: &str) -> CompactStr {
+                if val.len() < 14 {
+                    let len = val.len() as u8;
+                    let mut buffer = [0u8; 14];
+                    buffer[0..val.len()].copy_from_slice(val.as_bytes());
+                    CompactStr::Small{ buffer, len }
+                } else {
+                    CompactStr::Large{ ptr: SlimmerBox::new(val) }
+                }
+            }
+        }
+
+        impl CompactStr {
+            pub fn as_str(&self) -> &str {
+                match self {
+                    CompactStr::Small{buffer, len} => {
+                        let slice = &buffer[..*len as usize];
+                        std::str::from_utf8(slice).unwrap()
+                    },
+                    CompactStr::Large{ptr} =>
+                        &*ptr
+                }
+            }
+        }
+
+        impl std::fmt::Display for CompactStr {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", self.as_str())
+            }
+        }
+
+        impl std::fmt::Debug for CompactStr {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                let variant_name = match self {
+                    CompactStr::Small{ .. } => "CompactStr::Small",
+                    CompactStr::Large{ .. } => "CompactStr::Large",
+                };
+                f.debug_tuple(variant_name).field(&self.as_str()).finish()
+            }
+        }
+
+        /// Makes it easy to use any existing functions also on CompactStr
+        impl std::ops::Deref for CompactStr {
+            type Target = str;
+            fn deref(&self) -> &Self::Target {
+                self.as_str()
+            }
+        }
+
+        let compact_str: CompactStr = "hello world".into();
+        println!("{:?}", compact_str);
+
+        assert_eq!(core::mem::size_of_val(&compact_str), 16);
+
+        let compact_str_large: CompactStr = "the quick brown fox jumps over the lazy dog".into();
+        println!("{:?}", compact_str_large);
+
+        assert_eq!(core::mem::size_of_val(&compact_str_large), 16);
     }
 }

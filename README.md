@@ -39,7 +39,49 @@ This allows it to be used inside another structure, such as in one or more varia
 The resulting structure will then still only take up 16 bytes.
 
 In situations where you are trying to optimize for memory usage, cache locality, etc,
-this might make a difference.
+this might make a difference:
+
+### Motivating Example
+
+The following 'small str optimization' enum still only takes up two words,
+just like a normal `&str` would:
+```rust
+use slimmer_box::SlimmerBox;
+pub enum CompactStr {
+    Small{buffer: [u8; 14], len: u8}, // <- Or, using the `modular_bitfield` crate, this could even be { buffer: [u8; 15], len: u4} !
+    Large{ptr: SlimmerBox<str>},
+}
+
+impl From<&str> for CompactStr {
+    fn from(val: &str) -> CompactStr {
+        if val.len() < 14 {
+            let len = val.len() as u8;
+            let mut buffer = [0u8; 14];
+            buffer[0..val.len()].copy_from_slice(val.as_bytes());
+            CompactStr::Small{ buffer, len }
+        } else {
+            CompactStr::Large{ ptr: SlimmerBox::new(val) }
+        }
+    }
+}
+
+let compact_str: CompactStr = "hello world".into();
+assert_eq!(core::mem::size_of_val(&compact_str), 16);
+```
+_(A full version of this example including Debug, Display and Deref traits can be found [in this test]())_
+
+The following immutable AST still only takes up two words. Even `Option<AST>` is only two words:
+```rust
+pub enum AST {
+    Bool(bool),
+    Int(i64),
+    Float(f64),
+    Str(SlimmerBox<str>),
+    Bytes(SlimmerBox<[u8]>),
+    List(SlimmerBox<[AST]>),
+    // 2^32 - 7 other variants could be added and the size would still stay the same :-)
+}
+```
 
 ## Different sizes
 
@@ -83,7 +125,7 @@ SlimmerBox works perfectly fine in `no_std` environments, as long as the `alloc`
 
 (The only thing that is missing in no_std environments are implementations for SlimmerPointee of `std::ffi::OsStr` and `std::ffi::CStr`, neither of which exists when `std` is disabled.)
 
-## Examples
+## Usage Examples
 _(Below examples assume a 64-bit system)_
 
 Smaller than a normal Box for dynamically-sized types like slices or strings:
