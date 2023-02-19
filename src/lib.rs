@@ -275,7 +275,8 @@ where
     {
         let meta = ptr_meta::metadata(value);
         let target_ptr = if core::mem::size_of_val(value) > 0 {
-            // Normally-sized type:
+            println!("Normal type");
+            // Normally-sized type (or DST with non-empty size):
             let layout = core::alloc::Layout::for_value(value);
             let alloc_ptr = unsafe { alloc::alloc::alloc(layout) } as *mut ();
             let target_ptr: *mut T = ptr_meta::from_raw_parts_mut(alloc_ptr, meta);
@@ -284,7 +285,8 @@ where
             unsafe { &mut *target_ptr }.unsized_clone_from(value);
             target_ptr
         } else {
-            // ZST, no allocation needed nor desired
+            // ZST, (or DST with zero size like an empty slice)
+            // no allocation needed nor desired
             core::ptr::addr_of!(*value) as *mut T
         };
 
@@ -642,5 +644,12 @@ mod tests {
         let boxed_unit = SlimmerBox::new(&());
         println!("{:?}", boxed_unit);
         let unit2 = *SlimmerBox::into_box(boxed_unit).clone();
+    }
+
+    #[test]
+    fn empty_slice() {
+        let boxed_slice: SlimmerBox<[u64]> = SlimmerBox::new(&[]);
+        println!("{:?}", boxed_slice);
+        // let slice2 = *SlimmerBox::into_box(boxed_slice).clone().collect();
     }
 }
