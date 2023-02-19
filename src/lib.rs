@@ -643,13 +643,13 @@ mod tests {
     fn zst() {
         let boxed_unit = SlimmerBox::new(&());
         println!("{:?}", boxed_unit);
-        let unit2 = *SlimmerBox::into_box(boxed_unit).clone();
+        let _unit2 = *SlimmerBox::into_box(boxed_unit).clone();
     }
 
     #[test]
     fn empty_slice() {
         let boxed_slice: SlimmerBox<[u64]> = SlimmerBox::new(&[]);
+        assert_eq!(core::mem::size_of_val(&boxed_slice), 12);
         println!("{:?}", boxed_slice);
-        // let slice2 = *SlimmerBox::into_box(boxed_slice).clone().collect();
     }
 }
