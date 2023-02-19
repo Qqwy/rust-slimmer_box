@@ -101,7 +101,7 @@ pub mod serde;
 /// assert_eq!(core::mem::size_of_val(&Some(compact_str)), 16);
 /// ```
 ///
-/// _(A full version of this example including Debug, Display and Deref traits can be found [in this test](TODO))_
+/// _(A full version of this example including Debug, Display and Deref traits can be found [in this test](https://github.com/Qqwy/rust-slimmer_box/blob/e5edc75292903d627ee40734be25267befe30b29/src/lib.rs#L706-L771))_
 ///
 ///
 /// The following immutable AST still only takes up two words. Even `Option<AST>` is only two words:
