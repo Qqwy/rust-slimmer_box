@@ -76,7 +76,7 @@ pub mod serde;
 /// just like a normal `&str` would:
 /// 
 /// ```rust
-///     use slimmer_box::SlimmerBox;
+/// use slimmer_box::SlimmerBox;
 /// pub enum CompactStr {
 ///     Small{buffer: [u8; 14], len: u8}, // <- Or, using the `modular_bitfield` crate, this could even be { buffer: [u8; 15], len: u4} !
 ///     Large{ptr: SlimmerBox<str>},
@@ -164,7 +164,7 @@ pub mod serde;
 /// (The only thing that is missing in no_std environments are implementations for [SlimmerPointee](SlimmerPointee) of `std::ffi::OsStr` and `std::ffi::CStr`, neither of which exists when `std` is disabled.)
 ///
 ///
-/// ## Examples
+/// ## Usage Examples
 /// _(Below examples assume a 64-bit system)_
 ///
 /// Smaller than a normal Box for dynamically-sized types like slices or strings:
