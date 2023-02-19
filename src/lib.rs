@@ -119,6 +119,7 @@ pub mod serde;
 /// assert_eq!(core::mem::size_of::<AST>(), 16);
 /// assert_eq!(core::mem::size_of::<Option<AST>>(), 16);
 /// ```
+/// With some care, you could even combine the above two examples together, and still end up with an AST type that takes up just two words!
 ///
 /// # Different sizes
 ///

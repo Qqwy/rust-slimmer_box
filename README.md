@@ -67,6 +67,9 @@ impl From<&str> for CompactStr {
 
 let compact_str: CompactStr = "hello world".into();
 assert_eq!(core::mem::size_of_val(&compact_str), 16);
+
+// An Option<CompactStr> also only takes up two words:
+assert_eq!(core::mem::size_of_val(&Some(compact_str)), 16);
 ```
 _(A full version of this example including Debug, Display and Deref traits can be found [in this test]())_
 
@@ -81,8 +84,12 @@ pub enum AST {
     List(SlimmerBox<[AST]>),
     // 2^32 - 7 other variants could be added and the size would still stay the same :-)
 }
+assert_eq!(core::mem::size_of::<AST>(), 16);
+assert_eq!(core::mem::size_of::<Option<AST>>(), 16);
+
 ```
 
+With some care, you could even combine the above two examples together, and still end up with an AST type that takes up just two words!
 ## Different sizes
 
 SlimmerBox<T, u32> is the most common version, and therefore u32 is the default SlimmerMetadata to use.
