@@ -561,7 +561,7 @@ where
 
 impl<T, SlimmerMetadata> Clone for SlimmerBox<T, SlimmerMetadata>
 where
-    T: Clone,
+    T: CloneUnsized,
     T: ?Sized,
     T: SlimmerPointee<SlimmerMetadata>,
     SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
