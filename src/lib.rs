@@ -460,6 +460,20 @@ where
     }
 }
 
+unsafe impl<T: Send, SlimmerMetadata: Send> Send for SlimmerBox<T, SlimmerMetadata>
+where
+    T: ?Sized,
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
+{}
+
+unsafe impl<T: Sync, SlimmerMetadata: Sync> Sync for SlimmerBox<T, SlimmerMetadata>
+where
+    T: ?Sized,
+    T: SlimmerPointee<SlimmerMetadata>,
+    SlimmerMetadata: TryFrom<<T as Pointee>::Metadata> + TryInto<<T as Pointee>::Metadata> + Copy,
+{}
+
 impl<T, SlimmerMetadata> Drop for SlimmerBox<T, SlimmerMetadata>
 where
     T: ?Sized,
